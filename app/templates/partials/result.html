@@ -1,178 +1,173 @@
-{# Result card: price now, score, best window, simulator, and 24h chart. #}
+{# Result: price now, carbon, best window, simulator, optimizer, 24h chart. #}
 {% set score = r.score %}
 {% set color = score.color %}
+{% set cs = r.carbon_score %}
 
 <div class="space-y-5">
 
-  <!-- Now: price + score -->
-  <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6">
-    <div class="flex items-start justify-between gap-4 flex-wrap">
+  <!-- NOW: price + score + carbon -->
+  <div class="panel bg-white dark:bg-zinc-900/70 border border-zinc-300 dark:border-zinc-800 p-5 sm:p-6">
+    <span class="text-[11px] font-mono uppercase tracking-[0.18em] text-zinc-500 dark:text-zinc-400">// now</span>
+
+    <div class="flex items-start justify-between gap-4 flex-wrap mt-3">
       <div>
-        <p class="text-sm text-slate-500">{{ r.utility_name }} &middot; {{ r.current_hour_label }} now</p>
-        <p class="text-4xl font-bold mt-1">
-          ${{ "%.3f"|format(r.current_price) }}<span class="text-lg font-medium text-slate-500">/kWh</span>
+        <p class="text-sm text-zinc-500 dark:text-zinc-400">{{ r.utility_name }} &middot; {{ r.current_hour_label }}</p>
+        <p class="text-5xl font-bold font-mono tabular-nums mt-1 tracking-tight">
+          ${{ "%.3f"|format(r.current_price) }}<span class="text-lg font-medium text-zinc-400">/kWh</span>
         </p>
-        <p class="text-xs text-slate-500 mt-1">
-          base rate ${{ "%.3f"|format(r.base_price) }} &middot; grid-adjusted (modeled)
+        <p class="text-xs font-mono text-zinc-500 dark:text-zinc-500 mt-1">
+          base ${{ "%.3f"|format(r.base_price) }} &middot; grid-adjusted (modeled)
         </p>
       </div>
-      <span class="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold
-                   bg-{{ color }}-100 text-{{ color }}-800 border border-{{ color }}-300">
-        <span class="h-2.5 w-2.5 rounded-full bg-{{ color }}-600" aria-hidden="true"></span>
+      <span class="inline-flex items-center gap-2 panel px-3 py-1.5 text-sm font-semibold
+                   border border-{{ color }}-500/40 bg-{{ color }}-500/10 text-{{ color }}-700 dark:text-{{ color }}-300">
+        <span class="h-2 w-2 rounded-full bg-{{ color }}-500" aria-hidden="true"></span>
         {{ score.label }}
       </span>
     </div>
 
-    <p class="text-sm text-slate-600 mt-3">{{ r.explanation }}</p>
+    <p class="text-sm text-zinc-600 dark:text-zinc-400 mt-3">{{ r.explanation }}</p>
 
-    {% set cs = r.carbon_score %}
-    <div class="mt-3 flex items-center gap-2 flex-wrap">
-      <span class="inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-semibold
-                   bg-{{ cs.color }}-100 text-{{ cs.color }}-800 border border-{{ cs.color }}-300">
-        <span class="h-2 w-2 rounded-full bg-{{ cs.color }}-600" aria-hidden="true"></span>
+    <div class="mt-4 pt-4 border-t border-dashed border-zinc-300 dark:border-zinc-700 flex items-center gap-3 flex-wrap">
+      <span class="inline-flex items-center gap-2 panel px-3 py-1 text-sm font-semibold
+                   border border-{{ cs.color }}-500/40 bg-{{ cs.color }}-500/10 text-{{ cs.color }}-700 dark:text-{{ cs.color }}-300">
+        <span class="h-2 w-2 rounded-full bg-{{ cs.color }}-500" aria-hidden="true"></span>
         {{ cs.label }}
       </span>
-      <span class="text-sm text-slate-600">
-        {{ r.carbon_now|round|int }} gCO₂/kWh now &middot; cleanest at
-        <strong>{{ r.greenest_hour_label }}</strong>
+      <span class="text-sm font-mono text-zinc-600 dark:text-zinc-400">
+        {{ r.carbon_now|round|int }} gCO2/kWh &middot; cleanest @ <strong class="text-emerald-600 dark:text-emerald-400">{{ r.greenest_hour_label }}</strong>
       </span>
     </div>
 
     {% if r.structure != "flat" %}
-    <p class="text-sm text-slate-600 mt-1">
-      Next 24h ranges ${{ "%.3f"|format(r.min_price) }} to ${{ "%.3f"|format(r.max_price) }} per kWh.
+    <p class="text-xs font-mono text-zinc-500 dark:text-zinc-500 mt-3">
+      next 24h: ${{ "%.3f"|format(r.min_price) }} -- ${{ "%.3f"|format(r.max_price) }} /kWh
     </p>
     {% endif %}
   </div>
 
-  <!-- Appliance result -->
+  <!-- APPLIANCE -->
   {% if r.appliance %}
   {% set a = r.appliance %}
-  <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6">
-    <h3 class="font-semibold text-lg">{{ a.label }} &middot; {{ a.hours }}h &middot; {{ a.watts }}W</h3>
-    <p class="text-xs text-slate-500 mt-0.5">
-      Effective use: {{ "%.2f"|format(a.energy_kwh) }} kWh
-      {% if a.duty_cycle < 1.0 %}(cycles ~{{ (a.duty_cycle * 100)|round|int }}% of the time){% endif %}
+  <div class="panel bg-white dark:bg-zinc-900/70 border border-zinc-300 dark:border-zinc-800 p-5 sm:p-6">
+    <span class="text-[11px] font-mono uppercase tracking-[0.18em] text-zinc-500 dark:text-zinc-400">// run</span>
+    <h3 class="font-semibold text-lg mt-2">{{ a.label }}
+      <span class="font-mono text-sm text-zinc-500">&middot; {{ a.hours }}h &middot; {{ a.watts }}W</span>
+    </h3>
+    <p class="text-xs font-mono text-zinc-500 dark:text-zinc-500 mt-0.5">
+      effective: {{ "%.2f"|format(a.energy_kwh) }} kWh
+      {% if a.duty_cycle < 1.0 %}&middot; cycles ~{{ (a.duty_cycle * 100)|round|int }}%{% endif %}
+      &middot; {{ a.carbon_now_g|round|int }} gCO2 if run now
     </p>
 
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
-      <div class="rounded-xl bg-slate-50 border border-slate-200 p-4">
-        <p class="text-xs uppercase tracking-wide text-slate-500">Cost if you run now</p>
-        <p class="text-2xl font-bold mt-1">${{ "%.2f"|format(a.cost_now) }}</p>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
+      <div class="panel border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/40 p-4">
+        <p class="text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Run now</p>
+        <p class="text-2xl font-bold font-mono tabular-nums mt-1">${{ "%.2f"|format(a.cost_now) }}</p>
       </div>
-      <div class="rounded-xl bg-emerald-50 border border-emerald-200 p-4">
-        <p class="text-xs uppercase tracking-wide text-emerald-700">Cheapest window (24h)</p>
-        <p class="text-2xl font-bold mt-1 text-emerald-800">${{ "%.2f"|format(a.cost_best) }}</p>
-        <p class="text-sm text-emerald-700 mt-0.5">{{ a.best_window_label }}</p>
+      <div class="panel border border-emerald-500/40 bg-emerald-500/10 p-4">
+        <p class="text-[11px] uppercase tracking-wide text-emerald-700 dark:text-emerald-400">Cheapest window</p>
+        <p class="text-2xl font-bold font-mono tabular-nums mt-1 text-emerald-700 dark:text-emerald-300">${{ "%.2f"|format(a.cost_best) }}</p>
+        <p class="text-xs font-mono text-emerald-700 dark:text-emerald-400 mt-0.5">{{ a.best_window_label }}</p>
       </div>
-      <div class="rounded-xl bg-slate-50 border border-slate-200 p-4">
-        <p class="text-xs uppercase tracking-wide text-slate-500">You could save</p>
-        <p class="text-2xl font-bold mt-1">${{ "%.2f"|format(a.savings) }}</p>
+      <div class="panel border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/40 p-4">
+        <p class="text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">You save</p>
+        <p class="text-2xl font-bold font-mono tabular-nums mt-1">${{ "%.2f"|format(a.savings) }}</p>
       </div>
     </div>
 
-    <div class="mt-4 text-sm rounded-lg px-3 py-2.5
-                {% if a.run_now_is_best %}bg-emerald-50 text-emerald-800 border border-emerald-200
-                {% else %}bg-amber-50 text-amber-900 border border-amber-200{% endif %}">
+    <div class="mt-4 text-sm panel px-3 py-2.5 border
+                {% if a.run_now_is_best %}border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300
+                {% else %}border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300{% endif %}">
       {% if a.run_now_is_best %}
-        Good news &mdash; right now <strong>is</strong> the cheapest window. Fire it up.
+        Right now <strong>is</strong> the cheapest window. Fire it up.
       {% elif a.savings > 0 %}
         Wait until <strong>{{ a.best_window_label }}</strong> to save
-        <strong>${{ "%.2f"|format(a.savings) }}</strong> on this run.
+        <strong>${{ "%.2f"|format(a.savings) }}</strong>.
       {% else %}
-        Price is flat &mdash; run it whenever is convenient.
+        Price is flat -- run it whenever.
       {% endif %}
     </div>
   </div>
 
-  <!-- Cost Simulator -->
-  <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6">
-    <h3 class="font-semibold text-lg">Cost simulator</h3>
-    <p class="text-sm text-slate-500 mb-4">
-      Drag to see what {{ a.label }} ({{ a.hours }}h) would cost if you started
-      at any hour. You could save up to
-      <strong class="text-emerald-700">${{ "%.2f"|format(a.sim_max_savings) }}</strong>
-      by timing it right.
+  <!-- COST SIMULATOR -->
+  <div class="panel bg-white dark:bg-zinc-900/70 border border-zinc-300 dark:border-zinc-800 p-5 sm:p-6">
+    <span class="text-[11px] font-mono uppercase tracking-[0.18em] text-zinc-500 dark:text-zinc-400">// simulate</span>
+    <h3 class="font-semibold text-lg mt-2">Cost simulator</h3>
+    <p class="text-sm text-zinc-500 dark:text-zinc-400 mb-4">
+      Drag to price {{ a.label }} ({{ a.hours }}h) at any start hour. Save up to
+      <strong class="text-emerald-600 dark:text-emerald-400">${{ "%.2f"|format(a.sim_max_savings) }}</strong>.
     </p>
 
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-      <div class="rounded-xl bg-blue-50 border border-blue-200 p-4">
-        <p class="text-xs uppercase tracking-wide text-blue-700">Start at</p>
-        <p id="sim-start" class="text-2xl font-bold mt-1 text-blue-900">--</p>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+      <div class="panel border border-cyan-500/40 bg-cyan-500/10 p-4">
+        <p class="text-[11px] uppercase tracking-wide text-cyan-700 dark:text-cyan-400">Start at</p>
+        <p id="sim-start" class="text-2xl font-bold font-mono mt-1 text-cyan-700 dark:text-cyan-300">--</p>
       </div>
-      <div class="rounded-xl bg-slate-50 border border-slate-200 p-4">
-        <p class="text-xs uppercase tracking-wide text-slate-500">This run costs</p>
-        <p id="sim-cost" class="text-2xl font-bold mt-1">--</p>
+      <div class="panel border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/40 p-4">
+        <p class="text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">This run costs</p>
+        <p id="sim-cost" class="text-2xl font-bold font-mono tabular-nums mt-1">--</p>
       </div>
-      <div class="rounded-xl bg-emerald-50 border border-emerald-200 p-4">
-        <p class="text-xs uppercase tracking-wide text-emerald-700">vs cheapest</p>
-        <p id="sim-delta" class="text-2xl font-bold mt-1 text-emerald-800">--</p>
+      <div class="panel border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/40 p-4">
+        <p class="text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">vs cheapest</p>
+        <p id="sim-delta" class="text-2xl font-bold font-mono tabular-nums mt-1">--</p>
       </div>
     </div>
 
-    <label for="sim-slider" class="block text-sm font-medium mb-1">
-      Start hour: <span id="sim-slider-label" class="font-semibold"></span>
+    <label for="sim-slider" class="block text-xs font-mono uppercase tracking-wide text-zinc-500 dark:text-zinc-400 mb-1">
+      start hour: <span id="sim-slider-label" class="font-semibold text-cyan-700 dark:text-cyan-400"></span>
     </label>
-    <input type="range" id="sim-slider" min="0" max="23" step="1"
-           value="{{ r.current_hour }}"
-           aria-describedby="sim-start sim-cost sim-delta"
-           class="w-full accent-emerald-600" />
+    <input type="range" id="sim-slider" min="0" max="23" step="1" value="{{ r.current_hour }}"
+           aria-describedby="sim-start sim-cost sim-delta" class="w-full" />
 
-    <div style="height: 240px;" class="mt-4">
-      <canvas id="simChart"></canvas>
-    </div>
+    <div style="height: 240px;" class="mt-4"><canvas id="simChart"></canvas></div>
   </div>
 
-  <!-- Cost vs Carbon optimizer (multi-objective) -->
-  <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6">
-    <h3 class="font-semibold text-lg">Cost vs Carbon optimizer</h3>
-    <p class="text-sm text-slate-500 mb-4">
-      Slide between saving <strong>money</strong> and saving <strong>carbon</strong>.
-      We pick the best hour for your blend &mdash; using
-      <span class="{% if r.carbon_source == 'eia' %}text-emerald-700 font-medium{% endif %}">
-        {{ 'live EIA fuel-mix data' if r.carbon_source == 'eia' else 'a modeled grid mix' }}</span>.
+  <!-- COST vs CARBON OPTIMIZER -->
+  <div class="panel bg-white dark:bg-zinc-900/70 border border-zinc-300 dark:border-zinc-800 p-5 sm:p-6">
+    <span class="text-[11px] font-mono uppercase tracking-[0.18em] text-zinc-500 dark:text-zinc-400">// optimize</span>
+    <h3 class="font-semibold text-lg mt-2">Cost vs Carbon</h3>
+    <p class="text-sm text-zinc-500 dark:text-zinc-400 mb-4">
+      Slide between saving <strong>money</strong> and <strong>carbon</strong> --
+      using <span class="{% if r.carbon_source == 'eia' %}text-emerald-600 dark:text-emerald-400 font-medium{% endif %}">{{ 'live EIA fuel-mix data' if r.carbon_source == 'eia' else 'a modeled grid mix' }}</span>.
     </p>
 
-    <div class="rounded-xl bg-slate-900 text-white p-4 mb-4">
-      <p class="text-xs uppercase tracking-wide text-slate-400">Recommended start</p>
-      <p id="opt-time" class="text-3xl font-bold mt-1">--</p>
-      <p class="text-sm text-slate-300 mt-1">
+    <div class="panel bg-zinc-900 dark:bg-black text-white p-4 mb-4 border border-zinc-800">
+      <p class="text-[11px] font-mono uppercase tracking-wide text-zinc-400">Recommended start</p>
+      <p id="opt-time" class="text-3xl font-bold font-mono mt-1 text-cyan-400">--</p>
+      <p class="text-sm font-mono text-zinc-300 mt-1">
         <span id="opt-cost">--</span> &middot; <span id="opt-carbon">--</span>
       </p>
     </div>
 
-    <div class="flex items-center justify-between text-xs font-medium text-slate-500 mb-1">
-      <span> Cheapest</span><span> Balanced</span><span> Greenest</span>
+    <div class="flex items-center justify-between text-[11px] font-mono uppercase tracking-wide text-zinc-500 dark:text-zinc-400 mb-1">
+      <span>cheapest</span><span>balanced</span><span>greenest</span>
     </div>
     <label for="opt-slider" class="sr-only">Cost versus carbon weighting</label>
     <input type="range" id="opt-slider" min="0" max="100" step="5" value="50"
-           aria-describedby="opt-time opt-cost opt-carbon"
-           class="w-full accent-emerald-600" />
+           aria-describedby="opt-time opt-cost opt-carbon" class="w-full" />
 
-    <div style="height: 240px;" class="mt-4">
-      <canvas id="optChart"></canvas>
-    </div>
+    <div style="height: 240px;" class="mt-4"><canvas id="optChart"></canvas></div>
   </div>
   {% endif %}
 
-  <!-- 24h chart -->
-  <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6">
-    <h3 class="font-semibold text-lg">Next 24 hours</h3>
-    <p class="text-sm text-slate-500 mb-3">
-      Grid-adjusted price (bars), day-ahead forecast (dashed), grid demand (line)
-      <span class="inline-block ml-1 rounded px-1.5 py-0.5 text-xs
-                   {% if r.grid_source == 'eia' %}bg-emerald-100 text-emerald-800{% else %}bg-slate-100 text-slate-600{% endif %}">
-        {{ 'live EIA data' if r.grid_source == 'eia' else 'modeled (no API key)' }}
+  <!-- 24H CHART -->
+  <div class="panel bg-white dark:bg-zinc-900/70 border border-zinc-300 dark:border-zinc-800 p-5 sm:p-6">
+    <span class="text-[11px] font-mono uppercase tracking-[0.18em] text-zinc-500 dark:text-zinc-400">// next 24h</span>
+    <p class="text-sm text-zinc-500 dark:text-zinc-400 mt-2 mb-3">
+      Price (bars), day-ahead forecast (dashed), demand (line)
+      <span class="inline-block ml-1 panel px-1.5 py-0.5 text-[11px] font-mono
+                   {% if r.grid_source == 'eia' %}bg-emerald-500/15 text-emerald-700 dark:text-emerald-400{% else %}bg-zinc-500/15 text-zinc-500{% endif %}">
+        {{ 'LIVE EIA' if r.grid_source == 'eia' else 'MODELED' }}
       </span>
     </p>
-    <div style="height: 280px;">
-      <canvas id="priceChart"></canvas>
-    </div>
+    <div style="height: 280px;"><canvas id="priceChart"></canvas></div>
   </div>
 </div>
 
 <script>
 (function () {
+  const C = { tick: '#71717a', grid: 'rgba(113,113,122,0.15)' };
   const labels = {{ r.hour_labels|tojson }};
   const prices = {{ r.curve|tojson }};
   const forecast = {{ r.forecast_curve|tojson }};
@@ -180,12 +175,12 @@
   const currentHour = {{ r.current_hour }};
   const minP = Math.min(...prices), maxP = Math.max(...prices);
   const colors = prices.map((p, i) => {
-    if (i === currentHour) return '#1d4ed8';            // current hour: blue
-    if (maxP === minP) return '#94a3b8';                // flat
+    if (i === currentHour) return '#2563eb';
+    if (maxP === minP) return '#94a3b8';
     const rel = (p - minP) / (maxP - minP);
-    if (rel <= 1/3) return '#059669';                   // green
-    if (rel <= 2/3) return '#d97706';                   // amber
-    return '#dc2626';                                   // red
+    if (rel <= 1/3) return '#059669';
+    if (rel <= 2/3) return '#d97706';
+    return '#dc2626';
   });
 
   if (window._wwChart) window._wwChart.destroy();
@@ -194,42 +189,28 @@
     data: {
       labels: labels,
       datasets: [
-        {
-          type: 'bar', label: 'Price ($/kWh)', data: prices,
-          backgroundColor: colors, yAxisID: 'y', order: 3,
-        },
-        {
-          type: 'line', label: 'Day-ahead forecast', data: forecast,
-          borderColor: '#7c3aed', borderWidth: 2, borderDash: [5, 4],
-          pointRadius: 0, tension: 0.35, yAxisID: 'y', order: 2,
-        },
-        {
-          type: 'line', label: 'Grid demand', data: demand,
-          borderColor: '#0f172a', borderWidth: 2, pointRadius: 0,
-          tension: 0.35, yAxisID: 'y1', order: 1,
-        },
+        { type: 'bar', label: 'Price ($/kWh)', data: prices, backgroundColor: colors, yAxisID: 'y', order: 3 },
+        { type: 'line', label: 'Forecast', data: forecast, borderColor: '#a855f7', borderWidth: 2,
+          borderDash: [5, 4], pointRadius: 0, tension: 0.35, yAxisID: 'y', order: 2 },
+        { type: 'line', label: 'Grid demand', data: demand, borderColor: '#64748b', borderWidth: 2,
+          pointRadius: 0, tension: 0.35, yAxisID: 'y1', order: 1 },
       ],
     },
     options: {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { labels: { boxWidth: 12 } },
-        tooltip: {
-          callbacks: {
-            label: (c) => c.dataset.yAxisID === 'y'
-              ? c.dataset.label + ': $' + c.parsed.y.toFixed(3) + '/kWh'
-              : 'Grid demand ' + Math.round(c.parsed.y * 100) + '%',
-          },
-        },
+        legend: { labels: { boxWidth: 12, color: C.tick, font: { family: 'JetBrains Mono' } } },
+        tooltip: { callbacks: { label: (c) => c.dataset.yAxisID === 'y'
+          ? c.dataset.label + ': $' + c.parsed.y.toFixed(3)
+          : 'demand ' + Math.round(c.parsed.y * 100) + '%' } },
       },
       scales: {
-        y: { title: { display: true, text: '$/kWh' }, beginAtZero: true },
-        y1: {
-          position: 'right', min: 0, max: 1, grid: { drawOnChartArea: false },
-          ticks: { callback: (v) => Math.round(v * 100) + '%' },
-          title: { display: true, text: 'Grid demand' },
-        },
+        x: { ticks: { color: C.tick, maxRotation: 0, autoSkip: true, font: { family: 'JetBrains Mono', size: 10 } }, grid: { color: C.grid } },
+        y: { title: { display: true, text: '$/kWh', color: C.tick }, beginAtZero: true,
+             ticks: { color: C.tick, font: { family: 'JetBrains Mono' } }, grid: { color: C.grid } },
+        y1: { position: 'right', min: 0, max: 1, grid: { drawOnChartArea: false },
+              ticks: { color: C.tick, callback: (v) => Math.round(v * 100) + '%', font: { family: 'JetBrains Mono' } } },
       },
     },
   });
@@ -240,6 +221,7 @@
 {% set a = r.appliance %}
 <script>
 (function () {
+  const C = { tick: '#71717a', grid: 'rgba(113,113,122,0.15)' };
   const slider = document.getElementById('sim-slider');
   const canvas = document.getElementById('simChart');
   if (!slider || !canvas) return;
@@ -250,31 +232,22 @@
   const cheapestCost = {{ a.sim_cheapest_cost }};
   const currentHour = {{ r.current_hour }};
 
-  const baseColor = (i, selected) => {
-    if (i === selected) return '#1d4ed8';        // selected: blue
-    if (i === cheapestHour) return '#059669';    // cheapest: green
-    if (i === currentHour) return '#0ea5e9';      // now: sky
-    return '#cbd5e1';                             // others: slate-300
-  };
+  const baseColor = (i, sel) =>
+    i === sel ? '#2563eb' : i === cheapestHour ? '#059669' : i === currentHour ? '#06b6d4' : '#a1a1aa';
 
   if (window._wwSimChart) window._wwSimChart.destroy();
-  const ctx = canvas.getContext('2d');
-  window._wwSimChart = new Chart(ctx, {
+  window._wwSimChart = new Chart(canvas.getContext('2d'), {
     type: 'bar',
-    data: {
-      labels: labels,
-      datasets: [{
-        label: 'Cost to run ($)', data: costs,
-        backgroundColor: costs.map((_, i) => baseColor(i, +slider.value)),
-      }],
-    },
+    data: { labels, datasets: [{ label: 'Cost ($)', data: costs,
+      backgroundColor: costs.map((_, i) => baseColor(i, +slider.value)) }] },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: { callbacks: { label: (c) => '$' + c.parsed.y.toFixed(2) } },
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: (c) => '$' + c.parsed.y.toFixed(2) } } },
+      scales: {
+        x: { ticks: { color: C.tick, maxRotation: 0, autoSkip: true, font: { family: 'JetBrains Mono', size: 10 } }, grid: { color: C.grid } },
+        y: { beginAtZero: true, ticks: { color: C.tick, font: { family: 'JetBrains Mono' } }, grid: { color: C.grid } },
       },
-      scales: { y: { beginAtZero: true, title: { display: true, text: '$ per run' } } },
     },
   });
 
@@ -284,24 +257,20 @@
   const elLabel = document.getElementById('sim-slider-label');
 
   function render() {
-    const h = +slider.value;
-    const cost = costs[h];
-    const delta = +(cost - cheapestCost).toFixed(2);
+    const h = +slider.value, cost = costs[h], delta = +(cost - cheapestCost).toFixed(2);
     elStart.textContent = labels[h];
     elLabel.textContent = labels[h];
     elCost.textContent = '$' + cost.toFixed(2);
     if (delta <= 0.005) {
-      elDelta.textContent = 'Cheapest!';
-      elDelta.className = 'text-2xl font-bold mt-1 text-emerald-800';
+      elDelta.textContent = 'Cheapest';
+      elDelta.className = 'text-2xl font-bold font-mono tabular-nums mt-1 text-emerald-600 dark:text-emerald-400';
     } else {
       elDelta.textContent = '+$' + delta.toFixed(2);
-      elDelta.className = 'text-2xl font-bold mt-1 text-amber-700';
+      elDelta.className = 'text-2xl font-bold font-mono tabular-nums mt-1 text-amber-600 dark:text-amber-400';
     }
-    window._wwSimChart.data.datasets[0].backgroundColor =
-      costs.map((_, i) => baseColor(i, h));
+    window._wwSimChart.data.datasets[0].backgroundColor = costs.map((_, i) => baseColor(i, h));
     window._wwSimChart.update('none');
   }
-
   slider.addEventListener('input', render);
   render();
 })();
@@ -309,6 +278,7 @@
 
 <script>
 (function () {
+  const C = { tick: '#71717a', grid: 'rgba(113,113,122,0.15)' };
   const slider = document.getElementById('opt-slider');
   const canvas = document.getElementById('optChart');
   if (!slider || !canvas) return;
@@ -316,42 +286,29 @@
   const labels = {{ r.hour_labels|tojson }};
   const costs = {{ a.sim_costs|tojson }};
   const carbon = {{ a.sim_carbon_g|tojson }};
-
   const norm = (arr) => {
     const lo = Math.min(...arr), hi = Math.max(...arr);
-    if (hi === lo) return arr.map(() => 0.5);
-    return arr.map((v) => (v - lo) / (hi - lo));
+    return hi === lo ? arr.map(() => 0.5) : arr.map((v) => (v - lo) / (hi - lo));
   };
   const nCost = norm(costs), nCarbon = norm(carbon);
-
   const elTime = document.getElementById('opt-time');
   const elCost = document.getElementById('opt-cost');
   const elCarbon = document.getElementById('opt-carbon');
-
-  function fmtCarbon(g) {
-    return g >= 1000 ? (g / 1000).toFixed(2) + ' kgCO2' : Math.round(g) + ' gCO2';
-  }
+  const fmtC = (g) => g >= 1000 ? (g / 1000).toFixed(2) + ' kgCO2' : Math.round(g) + ' gCO2';
 
   if (window._wwOptChart) window._wwOptChart.destroy();
-  const ctx = canvas.getContext('2d');
-  window._wwOptChart = new Chart(ctx, {
+  window._wwOptChart = new Chart(canvas.getContext('2d'), {
     type: 'bar',
-    data: {
-      labels: labels,
-      datasets: [{
-        label: 'Blended score (lower = better)',
-        data: nCost.map((c, i) => 0.5 * c + 0.5 * nCarbon[i]),
-        backgroundColor: labels.map(() => '#cbd5e1'),
-      }],
-    },
+    data: { labels, datasets: [{ label: 'Blend', data: nCost.map((c, i) => 0.5 * c + 0.5 * nCarbon[i]),
+      backgroundColor: labels.map(() => '#a1a1aa') }] },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: { callbacks: { label: (c) =>
-          '$' + costs[c.dataIndex].toFixed(2) + '  |  ' + fmtCarbon(carbon[c.dataIndex]) } },
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: (c) => '$' + costs[c.dataIndex].toFixed(2) + '  |  ' + fmtC(carbon[c.dataIndex]) } } },
+      scales: {
+        x: { ticks: { color: C.tick, maxRotation: 0, autoSkip: true, font: { family: 'JetBrains Mono', size: 10 } }, grid: { color: C.grid } },
+        y: { display: false, beginAtZero: true },
       },
-      scales: { y: { display: false, beginAtZero: true } },
     },
   });
 
@@ -362,13 +319,11 @@
     for (let i = 1; i < 24; i++) if (blended[i] < blended[best]) best = i;
     elTime.textContent = labels[best];
     elCost.textContent = '$' + costs[best].toFixed(2);
-    elCarbon.textContent = fmtCarbon(carbon[best]);
+    elCarbon.textContent = fmtC(carbon[best]);
     window._wwOptChart.data.datasets[0].data = blended;
-    window._wwOptChart.data.datasets[0].backgroundColor =
-      labels.map((_, i) => i === best ? '#059669' : '#cbd5e1');
+    window._wwOptChart.data.datasets[0].backgroundColor = labels.map((_, i) => i === best ? '#22d3ee' : '#a1a1aa');
     window._wwOptChart.update('none');
   }
-
   slider.addEventListener('input', render);
   render();
 })();

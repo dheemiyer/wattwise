@@ -3,67 +3,156 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>WattWise -- When should I use electricity?</title>
+  <title>WattWise -- when to use electricity</title>
   <meta name="description"
-        content="Real grid pricing made simple. See the price per kWh right now and the cheapest window in the next 24 hours." />
+        content="Real grid pricing made simple. See the price per kWh right now, the carbon intensity, and the cheapest + cleanest window in the next 24 hours." />
+
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+          },
+        },
+      },
+    };
+    // Apply theme before paint to avoid a flash.
+    (function () {
+      const saved = localStorage.getItem('ww-theme');
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (saved === 'dark' || (!saved && prefersDark)) {
+        document.documentElement.classList.add('dark');
+      }
+    })();
+  </script>
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+
   <style>
-    body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-    .htmx-request .spinner { display: inline-block; }
+    :root { color-scheme: light; }
+    html.dark { color-scheme: dark; }
+    body {
+      font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+      background-color: #eef0ec;
+      background-image: radial-gradient(circle, rgba(15, 23, 32, 0.05) 1px, transparent 1px);
+      background-size: 22px 22px;
+    }
+    html.dark body {
+      background-color: #080b0f;
+      background-image: radial-gradient(circle, rgba(120, 160, 200, 0.06) 1px, transparent 1px);
+    }
+    /* Crisp, deliberate edges -- not the usual super-rounded look. */
+    .panel { border-radius: 2px; }
+    .htmx-request .spinner { display: inline-flex; }
     .spinner { display: none; }
+    /* Animated accent bar on the brand + on focus. */
+    @keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+    .live-dot { animation: pulse-dot 1.8s ease-in-out infinite; }
+    input[type=range] { accent-color: #0e7490; }
+    html.dark input[type=range] { accent-color: #22d3ee; }
+    ::selection { background: #22d3ee; color: #04141a; }
   </style>
 </head>
-<body class="bg-slate-50 text-slate-900 min-h-screen">
-  <header class="bg-slate-900 text-white">
-    <div class="max-w-3xl mx-auto px-4 py-6">
-      <h1 class="text-3xl font-bold tracking-tight">
-        Watt<span class="text-emerald-400">Wise</span>
-      </h1>
-      <p class="text-slate-300 mt-1 text-sm sm:text-base">
-        When should you use electricity &mdash; and what will it cost?
-      </p>
+<body class="text-zinc-900 dark:text-zinc-100 min-h-screen antialiased">
+
+  <!-- Top bar -->
+  <header class="sticky top-0 z-20 border-b border-zinc-300/70 dark:border-zinc-800
+                 bg-[#eef0ec]/80 dark:bg-[#080b0f]/80 backdrop-blur">
+    <div class="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="h-6 w-1.5 bg-cyan-600 dark:bg-cyan-400"></div>
+        <span class="font-mono font-bold tracking-[0.2em] text-sm">WATTWISE</span>
+        <span class="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-mono uppercase
+                     tracking-wider text-zinc-500 dark:text-zinc-400 ml-2">
+          <span class="live-dot h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+          live grid data
+        </span>
+      </div>
+      <button id="theme-toggle" type="button" aria-label="Toggle dark mode"
+              class="h-9 w-9 grid place-items-center panel border border-zinc-300 dark:border-zinc-700
+                     hover:border-cyan-600 dark:hover:border-cyan-400 transition-colors
+                     focus:outline-none focus:ring-2 focus:ring-cyan-600 dark:focus:ring-cyan-400">
+        <svg class="h-4 w-4 hidden dark:block" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5"/>
+        </svg>
+        <svg class="h-4 w-4 block dark:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
+        </svg>
+      </button>
     </div>
   </header>
 
-  <main class="max-w-3xl mx-auto px-4 py-6">
-    <!-- Input form -->
+  <main class="max-w-3xl mx-auto px-4 py-6 sm:py-8">
+
+    <!-- Hero line -->
+    <div class="mb-6">
+      <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight">
+        Know the <span class="text-cyan-700 dark:text-cyan-400">cheapest</span> and
+        <span class="text-emerald-600 dark:text-emerald-400">cleanest</span> time to use power.
+      </h1>
+      <p class="text-zinc-600 dark:text-zinc-400 mt-1 text-sm">
+        Live electricity price + grid carbon intensity for your zip. No account, no hardware.
+      </p>
+    </div>
+
+    <!-- Input console -->
     <section aria-labelledby="form-heading"
-             class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6">
-      <h2 id="form-heading" class="text-lg font-semibold mb-4">Check your power</h2>
+             class="panel bg-white dark:bg-zinc-900/70 border border-zinc-300 dark:border-zinc-800 p-5 sm:p-6">
+      <div class="flex items-center gap-2 mb-4">
+        <span class="text-[11px] font-mono uppercase tracking-[0.18em] text-zinc-500 dark:text-zinc-400">
+          // input
+        </span>
+        <h2 id="form-heading" class="sr-only">Check your power</h2>
+      </div>
+
       <form hx-post="/estimate" hx-target="#result" hx-swap="innerHTML"
             hx-indicator="#submit-btn" class="space-y-4">
 
         <div>
-          <label for="zip" class="block text-sm font-medium mb-1">Zip code</label>
+          <label for="zip" class="block text-xs font-medium uppercase tracking-wide
+                                   text-zinc-500 dark:text-zinc-400 mb-1.5">Zip code</label>
           <input type="text" id="zip" name="zip" inputmode="numeric"
-                 autocomplete="postal-code" required maxlength="5"
-                 pattern="[0-9]{5}" placeholder="e.g. 75001"
+                 autocomplete="postal-code" required maxlength="5" pattern="[0-9]{5}"
+                 placeholder="e.g. 75001"
                  hx-get="/utilities" hx-target="#utility-wrap" hx-trigger="keyup changed delay:400ms"
                  hx-include="this"
-                 class="w-full rounded-lg border border-slate-300 px-3 py-2.5
-                        focus:ring-2 focus:ring-emerald-600 focus:border-emerald-600
-                        focus:outline-none" />
+                 class="w-full panel font-mono bg-transparent border border-zinc-300 dark:border-zinc-700
+                        px-3 py-2.5 placeholder:text-zinc-400 dark:placeholder:text-zinc-600
+                        focus:outline-none focus:border-cyan-600 dark:focus:border-cyan-400
+                        focus:ring-1 focus:ring-cyan-600 dark:focus:ring-cyan-400" />
         </div>
 
         <div id="utility-wrap">
-          <label for="utility" class="block text-sm font-medium mb-1">Utility provider</label>
+          <label for="utility" class="block text-xs font-medium uppercase tracking-wide
+                                       text-zinc-500 dark:text-zinc-400 mb-1.5">Utility provider</label>
           <select id="utility" name="utility"
-                  class="w-full rounded-lg border border-slate-300 px-3 py-2.5 bg-white
-                         focus:ring-2 focus:ring-emerald-600 focus:border-emerald-600 focus:outline-none">
+                  class="w-full panel bg-transparent border border-zinc-300 dark:border-zinc-700
+                         px-3 py-2.5 focus:outline-none focus:border-cyan-600 dark:focus:border-cyan-400
+                         focus:ring-1 focus:ring-cyan-600 dark:focus:ring-cyan-400">
             <option value="">Auto-detect from zip</option>
           </select>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label for="appliance" class="block text-sm font-medium mb-1">
-              What do you want to run? <span class="text-slate-500 font-normal">(optional)</span>
+            <label for="appliance" class="block text-xs font-medium uppercase tracking-wide
+                                           text-zinc-500 dark:text-zinc-400 mb-1.5">
+              What to run <span class="normal-case text-zinc-400">(optional)</span>
             </label>
             <select id="appliance" name="appliance"
-                    class="w-full rounded-lg border border-slate-300 px-3 py-2.5 bg-white
-                           focus:ring-2 focus:ring-emerald-600 focus:border-emerald-600 focus:outline-none">
+                    class="w-full panel bg-transparent border border-zinc-300 dark:border-zinc-700
+                           px-3 py-2.5 focus:outline-none focus:border-cyan-600 dark:focus:border-cyan-400
+                           focus:ring-1 focus:ring-cyan-600 dark:focus:ring-cyan-400">
               <option value="">Just show me prices</option>
               {% for key, a in appliances.items() %}
               <option value="{{ key }}" data-hours="{{ a.default_hours }}">{{ a.label }} ({{ a.watts }}W)</option>
@@ -71,19 +160,26 @@
             </select>
           </div>
           <div>
-            <label for="hours" class="block text-sm font-medium mb-1">For how long? (hours)</label>
+            <label for="hours" class="block text-xs font-medium uppercase tracking-wide
+                                       text-zinc-500 dark:text-zinc-400 mb-1.5">For how long (hours)</label>
             <input type="number" id="hours" name="hours" min="0.25" max="24" step="0.25" value="1"
-                   class="w-full rounded-lg border border-slate-300 px-3 py-2.5
-                          focus:ring-2 focus:ring-emerald-600 focus:border-emerald-600 focus:outline-none" />
+                   class="w-full panel font-mono bg-transparent border border-zinc-300 dark:border-zinc-700
+                          px-3 py-2.5 focus:outline-none focus:border-cyan-600 dark:focus:border-cyan-400
+                          focus:ring-1 focus:ring-cyan-600 dark:focus:ring-cyan-400" />
           </div>
         </div>
 
         <button id="submit-btn" type="submit"
-                class="w-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800
-                       text-white font-semibold rounded-lg px-4 py-3
-                       focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-600
-                       transition-colors">
-          <span class="spinner" aria-hidden="true">Checking&hellip;</span>
+                class="w-full panel font-medium tracking-wide
+                       bg-cyan-700 hover:bg-cyan-800 text-white
+                       dark:bg-cyan-400 dark:hover:bg-cyan-300 dark:text-zinc-900
+                       px-4 py-3 transition-colors
+                       focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-cyan-600
+                       focus:ring-offset-[#eef0ec] dark:focus:ring-offset-[#080b0f]">
+          <span class="spinner items-center gap-2" aria-hidden="true">
+            <span class="h-3 w-3 border-2 border-current border-t-transparent rounded-full animate-spin"></span>
+            Reading the grid&hellip;
+          </span>
           <span class="[.htmx-request_&]:hidden">Check now</span>
         </button>
       </form>
@@ -92,15 +188,22 @@
     <!-- Result target -->
     <section id="result" aria-live="polite" class="mt-6"></section>
 
-    <p class="text-xs text-slate-500 mt-8 leading-relaxed">
-      Prices reflect your utility&rsquo;s published time-of-use schedule. The grid-stress
-      overlay uses live EIA hourly demand when an API key is configured (otherwise a
-      realistic model). WattWise is informational &mdash; always confirm with your provider.
+    <p class="text-xs text-zinc-500 dark:text-zinc-500 mt-8 leading-relaxed">
+      Prices combine your utility's published rate schedule with a live grid-stress signal from EIA.
+      Carbon intensity is computed from EIA's real hourly fuel mix. WattWise is informational --
+      always confirm with your provider.
     </p>
   </main>
 
   <script>
-    // When appliance changes, prefill its typical runtime.
+    // Theme toggle with persistence.
+    document.getElementById('theme-toggle').addEventListener('click', () => {
+      const root = document.documentElement;
+      root.classList.toggle('dark');
+      localStorage.setItem('ww-theme', root.classList.contains('dark') ? 'dark' : 'light');
+    });
+
+    // Prefill an appliance's typical runtime when chosen.
     document.getElementById('appliance').addEventListener('change', (e) => {
       const opt = e.target.selectedOptions[0];
       const h = opt && opt.dataset.hours;

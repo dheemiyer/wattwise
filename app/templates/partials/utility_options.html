@@ -1,7 +1,10 @@
-<label for="utility" class="block text-sm font-medium mb-1">Utility provider</label>
+<label for="utility" class="block text-xs font-medium uppercase tracking-wide
+                             text-zinc-500 dark:text-zinc-400 mb-1.5">Utility provider</label>
 <select id="utility" name="utility"
-        class="w-full rounded-lg border border-slate-300 px-3 py-2.5 bg-white
-               focus:ring-2 focus:ring-emerald-600 focus:border-emerald-600 focus:outline-none">
+        class="w-full bg-transparent border border-zinc-300 dark:border-zinc-700 px-3 py-2.5
+               focus:outline-none focus:border-cyan-600 dark:focus:border-cyan-400
+               focus:ring-1 focus:ring-cyan-600 dark:focus:ring-cyan-400"
+        style="border-radius: 2px;">
   {% if candidates %}
     {% for c in candidates %}
     <option value="{{ c.key }}">{{ c.name }}</option>
