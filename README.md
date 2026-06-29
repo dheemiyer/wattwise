@@ -49,9 +49,19 @@ app/
 
 ## Run it
 ```bash
+git clone <your-repo-url> wattwise
+cd wattwise
+
+# Option A -- uv (fast)
 uv venv
-uv pip install fastapi "uvicorn[standard]" jinja2 httpx python-dotenv pytest
-cp .env.example .env        # paste your free EIA key (optional)
+uv pip install -r requirements.txt
+
+# Option B -- plain pip
+python -m venv .venv
+.venv\Scripts\activate        # Windows  (use: source .venv/bin/activate on macOS/Linux)
+pip install -r requirements.txt
+
+cp .env.example .env            # then paste your free EIA key (optional)
 uvicorn app.main:app --reload --port 8050
 ```
 Open http://localhost:8050
