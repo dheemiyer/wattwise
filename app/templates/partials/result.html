@@ -1,4 +1,4 @@
-{# Result card: price now, score, best window, and 24h chart. #}
+{# Result card: price now, score, best window, simulator, and 24h chart. #}
 {% set score = r.score %}
 {% set color = score.color %}
 
@@ -12,6 +12,9 @@
         <p class="text-4xl font-bold mt-1">
           ${{ "%.3f"|format(r.current_price) }}<span class="text-lg font-medium text-slate-500">/kWh</span>
         </p>
+        <p class="text-xs text-slate-500 mt-1">
+          base rate ${{ "%.3f"|format(r.base_price) }} &middot; grid-adjusted (modeled)
+        </p>
       </div>
       <span class="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold
                    bg-{{ color }}-100 text-{{ color }}-800 border border-{{ color }}-300">
@@ -20,9 +23,10 @@
       </span>
     </div>
 
+    <p class="text-sm text-slate-600 mt-3">{{ r.explanation }}</p>
     {% if r.structure != "flat" %}
-    <p class="text-sm text-slate-600 mt-3">
-      Today ranges ${{ "%.3f"|format(r.min_price) }} to ${{ "%.3f"|format(r.max_price) }} per kWh.
+    <p class="text-sm text-slate-600 mt-1">
+      Next 24h ranges ${{ "%.3f"|format(r.min_price) }} to ${{ "%.3f"|format(r.max_price) }} per kWh.
     </p>
     {% endif %}
   </div>
@@ -32,6 +36,10 @@
   {% set a = r.appliance %}
   <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6">
     <h3 class="font-semibold text-lg">{{ a.label }} &middot; {{ a.hours }}h &middot; {{ a.watts }}W</h3>
+    <p class="text-xs text-slate-500 mt-0.5">
+      Effective use: {{ "%.2f"|format(a.energy_kwh) }} kWh
+      {% if a.duty_cycle < 1.0 %}(cycles ~{{ (a.duty_cycle * 100)|round|int }}% of the time){% endif %}
+    </p>
 
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
       <div class="rounded-xl bg-slate-50 border border-slate-200 p-4">
@@ -106,10 +114,10 @@
   <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6">
     <h3 class="font-semibold text-lg">Next 24 hours</h3>
     <p class="text-sm text-slate-500 mb-3">
-      Price per kWh (bars) with live grid demand overlay
+      Grid-adjusted price (bars), day-ahead forecast (dashed), grid demand (line)
       <span class="inline-block ml-1 rounded px-1.5 py-0.5 text-xs
-                   {% if r.demand_source == 'eia' %}bg-emerald-100 text-emerald-800{% else %}bg-slate-100 text-slate-600{% endif %}">
-        {{ 'live EIA data' if r.demand_source == 'eia' else 'modeled demand' }}
+                   {% if r.grid_source == 'eia' %}bg-emerald-100 text-emerald-800{% else %}bg-slate-100 text-slate-600{% endif %}">
+        {{ 'live EIA data' if r.grid_source == 'eia' else 'modeled (no API key)' }}
       </span>
     </p>
     <div style="height: 280px;">
@@ -122,7 +130,8 @@
 (function () {
   const labels = {{ r.hour_labels|tojson }};
   const prices = {{ r.curve|tojson }};
-  const demand = {{ r.demand_curve|tojson }};
+  const forecast = {{ r.forecast_curve|tojson }};
+  const demand = {{ r.stress_curve|tojson }};
   const currentHour = {{ r.current_hour }};
   const minP = Math.min(...prices), maxP = Math.max(...prices);
   const colors = prices.map((p, i) => {
@@ -142,7 +151,12 @@
       datasets: [
         {
           type: 'bar', label: 'Price ($/kWh)', data: prices,
-          backgroundColor: colors, yAxisID: 'y', order: 2,
+          backgroundColor: colors, yAxisID: 'y', order: 3,
+        },
+        {
+          type: 'line', label: 'Day-ahead forecast', data: forecast,
+          borderColor: '#7c3aed', borderWidth: 2, borderDash: [5, 4],
+          pointRadius: 0, tension: 0.35, yAxisID: 'y', order: 2,
         },
         {
           type: 'line', label: 'Grid demand', data: demand,
@@ -159,7 +173,7 @@
         tooltip: {
           callbacks: {
             label: (c) => c.dataset.yAxisID === 'y'
-              ? '$' + c.parsed.y.toFixed(3) + '/kWh'
+              ? c.dataset.label + ': $' + c.parsed.y.toFixed(3) + '/kWh'
               : 'Grid demand ' + Math.round(c.parsed.y * 100) + '%',
           },
         },

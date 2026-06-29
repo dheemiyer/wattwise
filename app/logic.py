@@ -1,15 +1,20 @@
-"""Pricing logic: price curve, cost calc, best-window, scoring.
+"""Pricing logic: base tariff, dynamic grid-aware price, forecast, windows.
 
-Pure functions, no I/O -- easy to test, easy to reason about.
+Pure functions, no I/O -- easy to test, easy to reason about. The dynamic and
+forecast curves come from combining the utility's base tariff (``build_price_curve``)
+with a live grid-stress signal via :mod:`app.grid`.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 
+from . import grid
+from .data.appliances import run_energy_kwh
+
 
 def price_at_hour(utility: dict, hour: int) -> float:
-    """$/kWh for a given clock hour (0-23) for this utility."""
+    """$/kWh for a given clock hour (0-23) for this utility (base tariff)."""
     if utility["structure"] == "flat":
         return float(utility["flat_rate"])
     for start, end, rate in utility["periods"]:
@@ -20,21 +25,26 @@ def price_at_hour(utility: dict, hour: int) -> float:
 
 
 def build_price_curve(utility: dict) -> list[float]:
-    """24 prices, one per clock hour."""
+    """24 base-tariff prices, one per clock hour."""
     return [price_at_hour(utility, h) for h in range(24)]
 
 
 def appliance_cost(watts: int, hours: float, price_per_kwh: float) -> float:
-    """Dollar cost = kW * hours * $/kWh."""
+    """Naive dollar cost = kW * hours * $/kWh (no duty cycle)."""
     kwh = (watts / 1000.0) * hours
     return round(kwh * price_per_kwh, 2)
 
 
-def score_now(current_price: float, curve: list[float]) -> dict:
-    """Classify the current price vs today's range -> green/yellow/red.
+def run_cost(appliance: dict, hours: float, price_per_kwh: float) -> float:
+    """Physics-aware dollar cost using effective kWh (duty cycle + surge)."""
+    return round(run_energy_kwh(appliance, hours) * price_per_kwh, 2)
 
-    Thresholds are relative: bottom third of range = green, top third = red.
-    For flat-rate utilities (no spread) everything is 'flat'.
+
+def score_now(current_price: float, curve: list[float]) -> dict:
+    """Classify current price vs the day's range -> green/yellow/red.
+
+    Bottom third of range = green, top third = red. Flat-rate utilities (no
+    spread) report 'flat'.
     """
     lo, hi = min(curve), max(curve)
     if hi == lo:
@@ -43,8 +53,7 @@ def score_now(current_price: float, curve: list[float]) -> dict:
             "label": "Flat rate -- same price all day",
             "color": "slate",
         }
-    span = hi - lo
-    rel = (current_price - lo) / span
+    rel = (current_price - lo) / (hi - lo)
     if rel <= 1 / 3:
         return {"level": "green", "label": "Cheap right now", "color": "green"}
     if rel <= 2 / 3:
@@ -59,17 +68,12 @@ def window_avg_price(curve: list[float], start_hour: int, n: int) -> float:
 
 
 def best_window(curve: list[float], duration_hours: float, from_hour: int) -> dict:
-    """Cheapest consecutive window of length `duration_hours` in next 24h.
-
-    Searches the next 24 hours starting at `from_hour` (wrapping past
-    midnight). Returns the window start hour and its average price.
-    """
+    """Cheapest consecutive window of length `duration_hours` in next 24h."""
     n = max(1, round(duration_hours))
     best = None
     for offset in range(24):
         start = from_hour + offset
-        # Window must fit fully within the next 24h horizon.
-        if offset + n > 24:
+        if offset + n > 24:  # window must fit fully in the 24h horizon
             break
         avg = window_avg_price(curve, start, n)
         if best is None or avg < best["avg_price"]:
@@ -82,13 +86,21 @@ def best_window(curve: list[float], duration_hours: float, from_hour: int) -> di
     return best
 
 
-def simulate_by_start_hour(
-    curve: list[float], watts: int, hours: float
-) -> list[dict]:
-    """Cost of running an appliance for every possible start hour (0-23).
+def fmt_hour(hour: int) -> str:
+    """12-hour clock label, e.g. 0 -> '12 AM', 16 -> '4 PM'."""
+    hour %= 24
+    suffix = "AM" if hour < 12 else "PM"
+    h12 = hour % 12 or 12
+    return f"{h12} {suffix}"
 
-    Each window wraps past midnight, so this answers "what would it cost if I
-    started at 2 PM vs 2 AM?" for all 24 start hours. Powers the simulator.
+
+def simulate_by_start_hour(
+    curve: list[float], appliance: dict, hours: float
+) -> list[dict]:
+    """Physics-aware cost of a run for every possible start hour (0-23).
+
+    Wraps past midnight, so it answers "what would it cost started at 2 PM vs
+    2 AM?" for all 24 start hours. Powers the cost simulator.
     """
     n = max(1, round(hours))
     out: list[dict] = []
@@ -99,61 +111,75 @@ def simulate_by_start_hour(
                 "start_hour": start,
                 "label": fmt_hour(start),
                 "avg_price": round(avg, 4),
-                "cost": appliance_cost(watts, hours, avg),
+                "cost": run_cost(appliance, hours, avg),
             }
         )
     return out
-
-
-def fmt_hour(hour: int) -> str:
-    """12-hour clock label, e.g. 0 -> '12 AM', 16 -> '4 PM'."""
-    hour %= 24
-    suffix = "AM" if hour < 12 else "PM"
-    h12 = hour % 12 or 12
-    return f"{h12} {suffix}"
 
 
 def compute_estimate(
     utility: dict,
     appliance: dict | None,
     hours: float,
-    demand: dict,
+    signal: dict,
     now: datetime | None = None,
 ) -> dict:
-    """Tie it all together into one result payload for the template."""
+    """Tie it together: base tariff + live grid signal -> full result payload.
+
+    ``signal`` is the dict from :func:`app.eia.get_grid_signal`
+    (``{"stress", "forecast", "source"}``).
+    """
     now = now or datetime.now()
     current_hour = now.hour
-    curve = build_price_curve(utility)
-    current_price = curve[current_hour]
-    score = score_now(current_price, curve)
+
+    base_curve = build_price_curve(utility)
+    stress = signal["stress"]
+    forecast_stress = signal.get("forecast", stress)
+    source = signal["source"]
+
+    dynamic_curve = grid.apply_dynamic(base_curve, stress)
+    forecast_curve = grid.apply_dynamic(base_curve, forecast_stress)
+
+    base_price = base_curve[current_hour]
+    current_price = dynamic_curve[current_hour]
+    score = score_now(current_price, dynamic_curve)
+    explanation = grid.explain(base_price, current_price, stress[current_hour], source)
 
     result: dict = {
         "current_hour": current_hour,
         "current_hour_label": fmt_hour(current_hour),
         "current_price": current_price,
-        "curve": curve,
+        "base_price": base_price,
+        "curve": dynamic_curve,
+        "base_curve": base_curve,
+        "forecast_curve": forecast_curve,
+        "stress_curve": stress,
         "hour_labels": [fmt_hour(h) for h in range(24)],
-        "demand_curve": demand["curve"],
-        "demand_source": demand["source"],
+        "grid_source": source,
+        "explanation": explanation,
         "score": score,
         "structure": utility["structure"],
         "utility_name": utility["name"],
-        "min_price": min(curve),
-        "max_price": max(curve),
+        "min_price": min(dynamic_curve),
+        "max_price": max(dynamic_curve),
     }
 
     if appliance is not None:
-        cost_now = appliance_cost(appliance["watts"], hours, current_price)
-        win = best_window(curve, hours, current_hour)
-        cost_best = appliance_cost(appliance["watts"], hours, win["avg_price"])
+        # Forward-looking: optimize against the day-ahead forecast curve.
+        energy_kwh = run_energy_kwh(appliance, hours)
+        cost_now = run_cost(appliance, hours, current_price)
+        win = best_window(forecast_curve, hours, current_hour)
+        cost_best = run_cost(appliance, hours, win["avg_price"])
         savings = round(cost_now - cost_best, 2)
-        sim = simulate_by_start_hour(curve, appliance["watts"], hours)
+        sim = simulate_by_start_hour(forecast_curve, appliance, hours)
         sim_costs = [s["cost"] for s in sim]
         cheapest = min(sim, key=lambda s: s["cost"])
         priciest = max(sim, key=lambda s: s["cost"])
         result["appliance"] = {
             "label": appliance["label"],
             "watts": appliance["watts"],
+            "duty_cycle": appliance.get("duty_cycle", 1.0),
+            "energy_kwh": energy_kwh,
             "hours": hours,
             "cost_now": cost_now,
             "best_window": win,

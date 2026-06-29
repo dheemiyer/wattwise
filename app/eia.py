@@ -1,12 +1,21 @@
-"""EIA-930 hourly grid-demand client with graceful mock fallback.
+"""EIA-930 grid client: live hourly demand + day-ahead forecast.
 
-EIA's free API exposes hourly grid *demand* (and day-ahead forecast) by
-balancing authority -- not retail price. We use that as a live "grid stress"
-overlay on top of the utility's published price schedule.
+EIA's free v2 API exposes hourly grid **demand** (type ``D``, actuals) and a
+**day-ahead demand forecast** (type ``DF``) per balancing authority. Neither is
+a retail price -- so we use them as a live *grid-stress* signal that drives the
+dynamic pricing model in ``grid.py``.
 
-If `EIA_API_KEY` is unset (or the call fails), we synthesize a realistic
-demand curve so the whole app still works end-to-end. The response always
-reports `source` ("eia" or "mock") so the UI can be honest about it.
+Two real signals are returned:
+- ``stress``   : today's normalized demand shape (actuals where available).
+- ``forecast`` : the next-24h normalized forecast shape (genuine EIA forecast).
+
+Network notes
+-------------
+This client is **proxy-aware**: set ``EIA_PROXY`` (or standard ``HTTPS_PROXY``)
+and requests route through it -- required behind corporate networks where
+``api.eia.gov`` isn't directly reachable. Without a key (or on any failure) we
+fall back to a realistic synthesized curve and report ``source="mock"`` so the
+UI stays honest about what's measured vs modeled.
 """
 
 from __future__ import annotations
@@ -20,7 +29,7 @@ import httpx
 from . import cache
 
 _EIA_URL = "https://api.eia.gov/v2/electricity/rto/region-data/data/"
-_CACHE_TTL = 60 * 60  # 1 hour -- demand forecast doesn't move minute-to-minute
+_CACHE_TTL = 60 * 60  # 1 hour -- demand/forecast don't move minute-to-minute
 
 
 def _api_key() -> str | None:
@@ -28,45 +37,98 @@ def _api_key() -> str | None:
     return key or None
 
 
-def _mock_demand_curve() -> list[float]:
-    """Synthesize a believable 24h demand shape, normalized to 0..1.
+def _proxy() -> str | None:
+    for var in ("EIA_PROXY", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"):
+        val = os.getenv(var, "").strip()
+        if val:
+            return val
+    return None
 
-    Shape: trough overnight (~3-5am), morning ramp, broad afternoon/evening
-    peak (~5-7pm). Deterministic so results are stable within the hour.
+
+def _client() -> httpx.Client:
+    """Build an httpx client, honoring a proxy across httpx versions."""
+    proxy = _proxy()
+    if not proxy:
+        return httpx.Client(timeout=12)
+    try:  # httpx >= 0.26
+        return httpx.Client(timeout=12, proxy=proxy)
+    except TypeError:  # older httpx
+        return httpx.Client(timeout=12, proxies=proxy)
+
+
+def _mock_curve(shift: float = 0.0) -> list[float]:
+    """A believable 24h demand shape normalized 0..1.
+
+    Overnight trough, morning bump, broad evening peak. ``shift`` nudges the
+    peak slightly so the 'forecast' curve isn't identical to today's actuals.
     """
     raw = []
     for h in range(24):
-        # Two humps: small morning, large evening. Baseline + cosine terms.
         morning = 0.25 * math.exp(-((h - 8) ** 2) / 8)
-        evening = 0.6 * math.exp(-((h - 18) ** 2) / 10)
-        baseline = 0.35
-        raw.append(baseline + morning + evening)
+        evening = 0.6 * math.exp(-((h - (18 + shift)) ** 2) / 10)
+        raw.append(0.35 + morning + evening)
     lo, hi = min(raw), max(raw)
     return [round((v - lo) / (hi - lo), 3) for v in raw]
 
 
-def _parse_eia(rows: list[dict]) -> dict[int, float] | None:
-    """Map EIA rows -> {local_hour: value}. Returns None if unusable."""
-    by_hour: dict[int, float] = {}
+def _normalize(values: list[float | None]) -> list[float] | None:
+    """Fill gaps with the mean, then min-max normalize to 0..1 over 24 slots."""
+    known = [v for v in values if v is not None]
+    if not known:
+        return None
+    fill = sum(known) / len(known)
+    filled = [v if v is not None else fill for v in values]
+    lo, hi = min(filled), max(filled)
+    if hi == lo:
+        return [0.5] * 24
+    return [round((v - lo) / (hi - lo), 3) for v in filled]
+
+
+def _parse_by_hour(rows: list[dict]) -> list[float | None]:
+    """Map EIA rows -> 24-slot list indexed by clock hour (latest wins)."""
+    slots: list[float | None] = [None] * 24
     for row in rows:
-        period = row.get("period")  # e.g. "2024-06-29T14"
-        value = row.get("value")
+        period, value = row.get("period"), row.get("value")
         if period is None or value is None:
             continue
         try:
-            hour = int(str(period)[11:13])
-            by_hour[hour] = float(value)
-        except (ValueError, TypeError):
+            slots[int(str(period)[11:13])] = float(value)
+        except (ValueError, TypeError, IndexError):
             continue
-    return by_hour or None
+    return slots
 
 
-def get_demand_curve(eia_region: str) -> dict:
-    """Return a 24-element demand curve (index = clock hour) normalized 0..1.
+def _fetch(region: str, key: str, dtype: str, hours_back: int, hours_fwd: int):
+    """Fetch one EIA series (``D`` or ``DF``) and return a normalized curve."""
+    end = datetime.utcnow() + timedelta(hours=hours_fwd)
+    start = end - timedelta(hours=hours_back + hours_fwd)
+    params = {
+        "api_key": key,
+        "frequency": "hourly",
+        "data[0]": "value",
+        "facets[respondent][]": region,
+        "facets[type][]": dtype,
+        "start": start.strftime("%Y-%m-%dT%H"),
+        "end": end.strftime("%Y-%m-%dT%H"),
+        "sort[0][column]": "period",
+        "sort[0][direction]": "desc",
+        "length": "72",
+    }
+    with _client() as client:
+        resp = client.get(_EIA_URL, params=params)
+        resp.raise_for_status()
+        rows = resp.json().get("response", {}).get("data", [])
+    return _normalize(_parse_by_hour(rows))
 
-    Output: {"curve": [..24..], "source": "eia"|"mock"}.
+
+def get_grid_signal(region: str) -> dict:
+    """Live grid-stress + forecast for a region (both normalized 0..1 by hour).
+
+    Returns ``{"stress": [..24..], "forecast": [..24..], "source": str}``.
+    ``source`` is ``"eia"`` when at least one real series was fetched, else
+    ``"mock"``.
     """
-    cache_key = f"demand:{eia_region}:{datetime.utcnow():%Y-%m-%d-%H}"
+    cache_key = f"grid:{region}:{datetime.utcnow():%Y-%m-%d-%H}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -74,50 +136,23 @@ def get_demand_curve(eia_region: str) -> dict:
     key = _api_key()
     if key:
         try:
-            result = _fetch_eia(eia_region, key)
-            if result is not None:
-                payload = {"curve": result, "source": "eia"}
+            stress = _fetch(region, key, "D", hours_back=36, hours_fwd=0)
+            forecast = _fetch(region, key, "DF", hours_back=12, hours_fwd=24)
+            if stress or forecast:
+                payload = {
+                    "stress": stress or forecast,
+                    "forecast": forecast or stress,
+                    "source": "eia",
+                }
                 cache.set(cache_key, payload, _CACHE_TTL)
                 return payload
         except (httpx.HTTPError, ValueError, KeyError):
             pass  # fall through to mock
 
-    payload = {"curve": _mock_demand_curve(), "source": "mock"}
+    payload = {
+        "stress": _mock_curve(),
+        "forecast": _mock_curve(shift=0.5),
+        "source": "mock",
+    }
     cache.set(cache_key, payload, _CACHE_TTL)
     return payload
-
-
-def _fetch_eia(eia_region: str, api_key: str) -> list[float] | None:
-    """Hit EIA v2 for recent hourly demand forecast; normalize to 0..1."""
-    end = datetime.utcnow() + timedelta(hours=1)
-    start = end - timedelta(hours=48)
-    params = {
-        "api_key": api_key,
-        "frequency": "hourly",
-        "data[0]": "value",
-        "facets[respondent][]": eia_region,
-        "facets[type][]": "DF",  # day-ahead demand forecast
-        "start": start.strftime("%Y-%m-%dT%H"),
-        "end": end.strftime("%Y-%m-%dT%H"),
-        "sort[0][column]": "period",
-        "sort[0][direction]": "desc",
-        "length": "48",
-    }
-    with httpx.Client(timeout=10) as client:
-        resp = client.get(_EIA_URL, params=params)
-        resp.raise_for_status()
-        rows = resp.json().get("response", {}).get("data", [])
-    by_hour = _parse_eia(rows)
-    if not by_hour:
-        return None
-    # Build a 24-slot curve indexed by clock hour, filling gaps with neighbours.
-    values = [by_hour.get(h) for h in range(24)]
-    known = [v for v in values if v is not None]
-    if not known:
-        return None
-    fill = sum(known) / len(known)
-    values = [v if v is not None else fill for v in values]
-    lo, hi = min(values), max(values)
-    if hi == lo:
-        return [0.5] * 24
-    return [round((v - lo) / (hi - lo), 3) for v in values]

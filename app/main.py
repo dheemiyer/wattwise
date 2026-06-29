@@ -83,8 +83,8 @@ def estimate(
 
     appl = get_appliance(appliance) if appliance else None
     hours = max(0.25, min(float(hours or 1.0), 24.0))
-    demand = eia.get_demand_curve(util["eia_region"])
-    result = logic.compute_estimate(util, appl, hours, demand)
+    signal = eia.get_grid_signal(util["eia_region"])
+    result = logic.compute_estimate(util, appl, hours, signal)
 
     return templates.TemplateResponse(
         request,
