@@ -24,6 +24,20 @@
     </div>
 
     <p class="text-sm text-slate-600 mt-3">{{ r.explanation }}</p>
+
+    {% set cs = r.carbon_score %}
+    <div class="mt-3 flex items-center gap-2 flex-wrap">
+      <span class="inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-semibold
+                   bg-{{ cs.color }}-100 text-{{ cs.color }}-800 border border-{{ cs.color }}-300">
+        <span class="h-2 w-2 rounded-full bg-{{ cs.color }}-600" aria-hidden="true"></span>
+        {{ cs.label }}
+      </span>
+      <span class="text-sm text-slate-600">
+        {{ r.carbon_now|round|int }} gCO₂/kWh now &middot; cleanest at
+        <strong>{{ r.greenest_hour_label }}</strong>
+      </span>
+    </div>
+
     {% if r.structure != "flat" %}
     <p class="text-sm text-slate-600 mt-1">
       Next 24h ranges ${{ "%.3f"|format(r.min_price) }} to ${{ "%.3f"|format(r.max_price) }} per kWh.
@@ -106,6 +120,37 @@
 
     <div style="height: 240px;" class="mt-4">
       <canvas id="simChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Cost vs Carbon optimizer (multi-objective) -->
+  <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6">
+    <h3 class="font-semibold text-lg">Cost vs Carbon optimizer</h3>
+    <p class="text-sm text-slate-500 mb-4">
+      Slide between saving <strong>money</strong> and saving <strong>carbon</strong>.
+      We pick the best hour for your blend &mdash; using
+      <span class="{% if r.carbon_source == 'eia' %}text-emerald-700 font-medium{% endif %}">
+        {{ 'live EIA fuel-mix data' if r.carbon_source == 'eia' else 'a modeled grid mix' }}</span>.
+    </p>
+
+    <div class="rounded-xl bg-slate-900 text-white p-4 mb-4">
+      <p class="text-xs uppercase tracking-wide text-slate-400">Recommended start</p>
+      <p id="opt-time" class="text-3xl font-bold mt-1">--</p>
+      <p class="text-sm text-slate-300 mt-1">
+        <span id="opt-cost">--</span> &middot; <span id="opt-carbon">--</span>
+      </p>
+    </div>
+
+    <div class="flex items-center justify-between text-xs font-medium text-slate-500 mb-1">
+      <span> Cheapest</span><span> Balanced</span><span> Greenest</span>
+    </div>
+    <label for="opt-slider" class="sr-only">Cost versus carbon weighting</label>
+    <input type="range" id="opt-slider" min="0" max="100" step="5" value="50"
+           aria-describedby="opt-time opt-cost opt-carbon"
+           class="w-full accent-emerald-600" />
+
+    <div style="height: 240px;" class="mt-4">
+      <canvas id="optChart"></canvas>
     </div>
   </div>
   {% endif %}
@@ -255,6 +300,73 @@
     window._wwSimChart.data.datasets[0].backgroundColor =
       costs.map((_, i) => baseColor(i, h));
     window._wwSimChart.update('none');
+  }
+
+  slider.addEventListener('input', render);
+  render();
+})();
+</script>
+
+<script>
+(function () {
+  const slider = document.getElementById('opt-slider');
+  const canvas = document.getElementById('optChart');
+  if (!slider || !canvas) return;
+
+  const labels = {{ r.hour_labels|tojson }};
+  const costs = {{ a.sim_costs|tojson }};
+  const carbon = {{ a.sim_carbon_g|tojson }};
+
+  const norm = (arr) => {
+    const lo = Math.min(...arr), hi = Math.max(...arr);
+    if (hi === lo) return arr.map(() => 0.5);
+    return arr.map((v) => (v - lo) / (hi - lo));
+  };
+  const nCost = norm(costs), nCarbon = norm(carbon);
+
+  const elTime = document.getElementById('opt-time');
+  const elCost = document.getElementById('opt-cost');
+  const elCarbon = document.getElementById('opt-carbon');
+
+  function fmtCarbon(g) {
+    return g >= 1000 ? (g / 1000).toFixed(2) + ' kgCO2' : Math.round(g) + ' gCO2';
+  }
+
+  if (window._wwOptChart) window._wwOptChart.destroy();
+  const ctx = canvas.getContext('2d');
+  window._wwOptChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Blended score (lower = better)',
+        data: nCost.map((c, i) => 0.5 * c + 0.5 * nCarbon[i]),
+        backgroundColor: labels.map(() => '#cbd5e1'),
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (c) =>
+          '$' + costs[c.dataIndex].toFixed(2) + '  |  ' + fmtCarbon(carbon[c.dataIndex]) } },
+      },
+      scales: { y: { display: false, beginAtZero: true } },
+    },
+  });
+
+  function render() {
+    const w = +slider.value / 100;
+    const blended = nCost.map((c, i) => (1 - w) * c + w * nCarbon[i]);
+    let best = 0;
+    for (let i = 1; i < 24; i++) if (blended[i] < blended[best]) best = i;
+    elTime.textContent = labels[best];
+    elCost.textContent = '$' + costs[best].toFixed(2);
+    elCarbon.textContent = fmtCarbon(carbon[best]);
+    window._wwOptChart.data.datasets[0].data = blended;
+    window._wwOptChart.data.datasets[0].backgroundColor =
+      labels.map((_, i) => i === best ? '#059669' : '#cbd5e1');
+    window._wwOptChart.update('none');
   }
 
   slider.addEventListener('input', render);

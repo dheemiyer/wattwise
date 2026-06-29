@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from . import grid
+from . import carbon as carbon_mod
 from .data.appliances import run_energy_kwh
 
 
@@ -122,12 +123,13 @@ def compute_estimate(
     appliance: dict | None,
     hours: float,
     signal: dict,
+    carbon_signal: dict | None = None,
     now: datetime | None = None,
 ) -> dict:
     """Tie it together: base tariff + live grid signal -> full result payload.
 
-    ``signal`` is the dict from :func:`app.eia.get_grid_signal`
-    (``{"stress", "forecast", "source"}``).
+    ``signal`` is from :func:`app.eia.get_grid_signal`; ``carbon_signal`` is
+    from :func:`app.eia.get_carbon_signal` (``{"curve", "source"}``).
     """
     now = now or datetime.now()
     current_hour = now.hour
@@ -145,6 +147,12 @@ def compute_estimate(
     score = score_now(current_price, dynamic_curve)
     explanation = grid.explain(base_price, current_price, stress[current_hour], source)
 
+    carbon_signal = carbon_signal or {"curve": [500.0] * 24, "source": "mock"}
+    carbon_curve = carbon_signal["curve"]
+    carbon_now = carbon_curve[current_hour]
+    carbon_score = carbon_mod.score_carbon(carbon_now, carbon_curve)
+    greenest_hour = min(range(24), key=lambda h: carbon_curve[h])
+
     result: dict = {
         "current_hour": current_hour,
         "current_hour_label": fmt_hour(current_hour),
@@ -154,6 +162,12 @@ def compute_estimate(
         "base_curve": base_curve,
         "forecast_curve": forecast_curve,
         "stress_curve": stress,
+        "carbon_curve": carbon_curve,
+        "carbon_now": carbon_now,
+        "carbon_source": carbon_signal["source"],
+        "carbon_score": carbon_score,
+        "greenest_hour": greenest_hour,
+        "greenest_hour_label": fmt_hour(greenest_hour),
         "hour_labels": [fmt_hour(h) for h in range(24)],
         "grid_source": source,
         "explanation": explanation,
@@ -175,6 +189,13 @@ def compute_estimate(
         sim_costs = [s["cost"] for s in sim]
         cheapest = min(sim, key=lambda s: s["cost"])
         priciest = max(sim, key=lambda s: s["cost"])
+        # Carbon per start hour (grams) over the run, for the optimizer.
+        carbon_g = [
+            round(energy_kwh * window_avg_price(carbon_curve, h, max(1, round(hours))), 0)
+            for h in range(24)
+        ]
+        green_win = best_window(carbon_curve, hours, current_hour)
+        balanced_hour = carbon_mod.weighted_best_hour(forecast_curve, carbon_curve, 0.5)
         result["appliance"] = {
             "label": appliance["label"],
             "watts": appliance["watts"],
@@ -182,6 +203,7 @@ def compute_estimate(
             "energy_kwh": energy_kwh,
             "hours": hours,
             "cost_now": cost_now,
+            "carbon_now_g": round(energy_kwh * carbon_now, 0),
             "best_window": win,
             "best_window_label": (
                 f"{fmt_hour(win['start_hour'])} - {fmt_hour(win['end_hour'])}"
@@ -189,8 +211,15 @@ def compute_estimate(
             "cost_best": cost_best,
             "savings": max(savings, 0.0),
             "run_now_is_best": win["start_hour"] == current_hour,
+            "greenest_window_label": (
+                f"{fmt_hour(green_win['start_hour'])} - {fmt_hour(green_win['end_hour'])}"
+            ),
+            "greenest_start_hour": green_win["start_hour"],
+            "balanced_hour": balanced_hour,
+            "balanced_hour_label": fmt_hour(balanced_hour),
             "simulation": sim,
             "sim_costs": sim_costs,
+            "sim_carbon_g": carbon_g,
             "sim_cheapest_hour": cheapest["start_hour"],
             "sim_cheapest_cost": cheapest["cost"],
             "sim_priciest_cost": priciest["cost"],

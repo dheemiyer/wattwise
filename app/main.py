@@ -84,7 +84,8 @@ def estimate(
     appl = get_appliance(appliance) if appliance else None
     hours = max(0.25, min(float(hours or 1.0), 24.0))
     signal = eia.get_grid_signal(util["eia_region"])
-    result = logic.compute_estimate(util, appl, hours, signal)
+    carbon = eia.get_carbon_signal(util["eia_region"])
+    result = logic.compute_estimate(util, appl, hours, signal, carbon)
 
     return templates.TemplateResponse(
         request,

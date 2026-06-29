@@ -1,20 +1,17 @@
-"""EIA-930 grid client: live hourly demand + day-ahead forecast.
+"""EIA-930 grid client: live demand, day-ahead forecast, and fuel mix.
 
-EIA's free v2 API exposes hourly grid **demand** (type ``D``, actuals) and a
-**day-ahead demand forecast** (type ``DF``) per balancing authority. Neither is
-a retail price -- so we use them as a live *grid-stress* signal that drives the
-dynamic pricing model in ``grid.py``.
-
-Two real signals are returned:
-- ``stress``   : today's normalized demand shape (actuals where available).
-- ``forecast`` : the next-24h normalized forecast shape (genuine EIA forecast).
+EIA's free v2 API exposes, per balancing authority:
+- hourly grid **demand** (type ``D``) and a **day-ahead forecast** (type ``DF``)
+  -- used as the grid-stress signal that drives dynamic pricing (``grid.py``).
+- hourly **generation by fuel type** -- reduced to a real grid **carbon
+  intensity** curve via ``carbon.py``.
 
 Network notes
 -------------
 This client is **proxy-aware**: set ``EIA_PROXY`` (or standard ``HTTPS_PROXY``)
-and requests route through it -- required behind corporate networks where
+so requests route through it -- required behind corporate networks where
 ``api.eia.gov`` isn't directly reachable. Without a key (or on any failure) we
-fall back to a realistic synthesized curve and report ``source="mock"`` so the
+fall back to realistic synthesized curves and report ``source="mock"`` so the
 UI stays honest about what's measured vs modeled.
 """
 
@@ -27,9 +24,11 @@ from datetime import datetime, timedelta
 import httpx
 
 from . import cache
+from .carbon import carbon_intensity_curve
 
 _EIA_URL = "https://api.eia.gov/v2/electricity/rto/region-data/data/"
-_CACHE_TTL = 60 * 60  # 1 hour -- demand/forecast don't move minute-to-minute
+_FUEL_URL = "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data/"
+_CACHE_TTL = 60 * 60  # 1 hour -- these signals don't move minute-to-minute
 
 
 def _api_key() -> str | None:
@@ -71,7 +70,17 @@ def _mock_curve(shift: float = 0.0) -> list[float]:
     return [round((v - lo) / (hi - lo), 3) for v in raw]
 
 
-def _normalize(values: list[float | None]) -> list[float] | None:
+def _mock_carbon_curve() -> list[float]:
+    """Believable carbon curve (gCO2/kWh): cleaner midday (solar), dirty eve."""
+    raw = []
+    for h in range(24):
+        solar_dip = 220 * math.exp(-((h - 13) ** 2) / 14)  # midday solar cleans
+        evening_bump = 120 * math.exp(-((h - 19) ** 2) / 12)  # gas peakers
+        raw.append(round(520 - solar_dip + evening_bump, 1))
+    return raw
+
+
+def _normalize(values: list) -> list | None:
     """Fill gaps with the mean, then min-max normalize to 0..1 over 24 slots."""
     known = [v for v in values if v is not None]
     if not known:
@@ -84,9 +93,9 @@ def _normalize(values: list[float | None]) -> list[float] | None:
     return [round((v - lo) / (hi - lo), 3) for v in filled]
 
 
-def _parse_by_hour(rows: list[dict]) -> list[float | None]:
+def _parse_by_hour(rows: list) -> list:
     """Map EIA rows -> 24-slot list indexed by clock hour (latest wins)."""
-    slots: list[float | None] = [None] * 24
+    slots = [None] * 24
     for row in rows:
         period, value = row.get("period"), row.get("value")
         if period is None or value is None:
@@ -99,7 +108,7 @@ def _parse_by_hour(rows: list[dict]) -> list[float | None]:
 
 
 def _fetch(region: str, key: str, dtype: str, hours_back: int, hours_fwd: int):
-    """Fetch one EIA series (``D`` or ``DF``) and return a normalized curve."""
+    """Fetch one EIA demand series (``D`` or ``DF``); return normalized curve."""
     end = datetime.utcnow() + timedelta(hours=hours_fwd)
     start = end - timedelta(hours=hours_back + hours_fwd)
     params = {
@@ -125,8 +134,6 @@ def get_grid_signal(region: str) -> dict:
     """Live grid-stress + forecast for a region (both normalized 0..1 by hour).
 
     Returns ``{"stress": [..24..], "forecast": [..24..], "source": str}``.
-    ``source`` is ``"eia"`` when at least one real series was fetched, else
-    ``"mock"``.
     """
     cache_key = f"grid:{region}:{datetime.utcnow():%Y-%m-%d-%H}"
     cached = cache.get(cache_key)
@@ -154,5 +161,78 @@ def get_grid_signal(region: str) -> dict:
         "forecast": _mock_curve(shift=0.5),
         "source": "mock",
     }
+    cache.set(cache_key, payload, _CACHE_TTL)
+    return payload
+
+
+def _fetch_carbon(region: str, key: str):
+    """Fetch recent hourly fuel mix -> 24h carbon-intensity curve (gCO2/kWh)."""
+    end = datetime.utcnow() + timedelta(hours=1)
+    start = end - timedelta(hours=48)
+    params = {
+        "api_key": key,
+        "frequency": "hourly",
+        "data[0]": "value",
+        "facets[respondent][]": region,
+        "start": start.strftime("%Y-%m-%dT%H"),
+        "end": end.strftime("%Y-%m-%dT%H"),
+        "sort[0][column]": "period",
+        "sort[0][direction]": "desc",
+        "length": "5000",
+    }
+    with _client() as client:
+        resp = client.get(_FUEL_URL, params=params)
+        resp.raise_for_status()
+        rows = resp.json().get("response", {}).get("data", [])
+
+    by_hour: dict = {}
+    seen: set = set()
+    for row in rows:
+        period, fuel, value = row.get("period"), row.get("fueltype"), row.get("value")
+        if period is None or fuel is None or value is None:
+            continue
+        try:
+            hour = int(str(period)[11:13])
+            mw = float(value)
+        except (ValueError, TypeError, IndexError):
+            continue
+        if (hour, fuel) in seen:  # rows newest-first; keep the latest per slot
+            continue
+        seen.add((hour, fuel))
+        by_hour.setdefault(hour, {})[fuel] = mw
+
+    if not by_hour:
+        return None
+    curve = carbon_intensity_curve(by_hour)
+    known = [v for v in curve if v is not None]
+    if not known:
+        return None
+    fill = sum(known) / len(known)
+    return [round(v if v is not None else fill, 1) for v in curve]
+
+
+def get_carbon_signal(region: str) -> dict:
+    """Hourly grid carbon intensity (gCO2/kWh) for a region.
+
+    Returns ``{"curve": [..24..], "source": "eia"|"mock"}`` -- computed from
+    EIA's real hourly fuel-mix feed, with a modeled fallback.
+    """
+    cache_key = f"carbon:{region}:{datetime.utcnow():%Y-%m-%d-%H}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    key = _api_key()
+    if key:
+        try:
+            curve = _fetch_carbon(region, key)
+            if curve is not None:
+                payload = {"curve": curve, "source": "eia"}
+                cache.set(cache_key, payload, _CACHE_TTL)
+                return payload
+        except (httpx.HTTPError, ValueError, KeyError):
+            pass
+
+    payload = {"curve": _mock_carbon_curve(), "source": "mock"}
     cache.set(cache_key, payload, _CACHE_TTL)
     return payload
