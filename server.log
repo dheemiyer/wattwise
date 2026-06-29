@@ -1,0 +1,25 @@
+INFO:     Started server process [9476]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8050 (Press CTRL+C to quit)
+INFO:     127.0.0.1:62787 - "POST /estimate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64241 - "POST /estimate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49994 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63668 - "GET /utilities?zip=23 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63668 - "GET /utilities?zip=23832 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62867 - "POST /estimate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60794 - "GET /utilities?zip=tsf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60794 - "GET /utilities?zip= HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64798 - "GET /utilities?zip=94107 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64798 - "GET /utilities?zip=94107 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64798 - "POST /estimate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65296 - "GET /utilities?zip=43210 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65296 - "POST /estimate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50449 - "GET /utilities?zip=94 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50449 - "GET /utilities?zip=941 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50449 - "GET /utilities?zip=94127 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50449 - "POST /estimate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60169 - "GET /utilities?zip=tnew%20 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60169 - "GET /utilities?zip= HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60169 - "GET /utilities?zip=07008 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60169 - "POST /estimate HTTP/1.1" 200 OK

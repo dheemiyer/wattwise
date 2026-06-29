@@ -1,0 +1,250 @@
+{# Result card: price now, score, best window, and 24h chart. #}
+{% set score = r.score %}
+{% set color = score.color %}
+
+<div class="space-y-5">
+
+  <!-- Now: price + score -->
+  <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6">
+    <div class="flex items-start justify-between gap-4 flex-wrap">
+      <div>
+        <p class="text-sm text-slate-500">{{ r.utility_name }} &middot; {{ r.current_hour_label }} now</p>
+        <p class="text-4xl font-bold mt-1">
+          ${{ "%.3f"|format(r.current_price) }}<span class="text-lg font-medium text-slate-500">/kWh</span>
+        </p>
+      </div>
+      <span class="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold
+                   bg-{{ color }}-100 text-{{ color }}-800 border border-{{ color }}-300">
+        <span class="h-2.5 w-2.5 rounded-full bg-{{ color }}-600" aria-hidden="true"></span>
+        {{ score.label }}
+      </span>
+    </div>
+
+    {% if r.structure != "flat" %}
+    <p class="text-sm text-slate-600 mt-3">
+      Today ranges ${{ "%.3f"|format(r.min_price) }} to ${{ "%.3f"|format(r.max_price) }} per kWh.
+    </p>
+    {% endif %}
+  </div>
+
+  <!-- Appliance result -->
+  {% if r.appliance %}
+  {% set a = r.appliance %}
+  <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6">
+    <h3 class="font-semibold text-lg">{{ a.label }} &middot; {{ a.hours }}h &middot; {{ a.watts }}W</h3>
+
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+      <div class="rounded-xl bg-slate-50 border border-slate-200 p-4">
+        <p class="text-xs uppercase tracking-wide text-slate-500">Cost if you run now</p>
+        <p class="text-2xl font-bold mt-1">${{ "%.2f"|format(a.cost_now) }}</p>
+      </div>
+      <div class="rounded-xl bg-emerald-50 border border-emerald-200 p-4">
+        <p class="text-xs uppercase tracking-wide text-emerald-700">Cheapest window (24h)</p>
+        <p class="text-2xl font-bold mt-1 text-emerald-800">${{ "%.2f"|format(a.cost_best) }}</p>
+        <p class="text-sm text-emerald-700 mt-0.5">{{ a.best_window_label }}</p>
+      </div>
+      <div class="rounded-xl bg-slate-50 border border-slate-200 p-4">
+        <p class="text-xs uppercase tracking-wide text-slate-500">You could save</p>
+        <p class="text-2xl font-bold mt-1">${{ "%.2f"|format(a.savings) }}</p>
+      </div>
+    </div>
+
+    <div class="mt-4 text-sm rounded-lg px-3 py-2.5
+                {% if a.run_now_is_best %}bg-emerald-50 text-emerald-800 border border-emerald-200
+                {% else %}bg-amber-50 text-amber-900 border border-amber-200{% endif %}">
+      {% if a.run_now_is_best %}
+        Good news &mdash; right now <strong>is</strong> the cheapest window. Fire it up.
+      {% elif a.savings > 0 %}
+        Wait until <strong>{{ a.best_window_label }}</strong> to save
+        <strong>${{ "%.2f"|format(a.savings) }}</strong> on this run.
+      {% else %}
+        Price is flat &mdash; run it whenever is convenient.
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Cost Simulator -->
+  <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6">
+    <h3 class="font-semibold text-lg">Cost simulator</h3>
+    <p class="text-sm text-slate-500 mb-4">
+      Drag to see what {{ a.label }} ({{ a.hours }}h) would cost if you started
+      at any hour. You could save up to
+      <strong class="text-emerald-700">${{ "%.2f"|format(a.sim_max_savings) }}</strong>
+      by timing it right.
+    </p>
+
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+      <div class="rounded-xl bg-blue-50 border border-blue-200 p-4">
+        <p class="text-xs uppercase tracking-wide text-blue-700">Start at</p>
+        <p id="sim-start" class="text-2xl font-bold mt-1 text-blue-900">--</p>
+      </div>
+      <div class="rounded-xl bg-slate-50 border border-slate-200 p-4">
+        <p class="text-xs uppercase tracking-wide text-slate-500">This run costs</p>
+        <p id="sim-cost" class="text-2xl font-bold mt-1">--</p>
+      </div>
+      <div class="rounded-xl bg-emerald-50 border border-emerald-200 p-4">
+        <p class="text-xs uppercase tracking-wide text-emerald-700">vs cheapest</p>
+        <p id="sim-delta" class="text-2xl font-bold mt-1 text-emerald-800">--</p>
+      </div>
+    </div>
+
+    <label for="sim-slider" class="block text-sm font-medium mb-1">
+      Start hour: <span id="sim-slider-label" class="font-semibold"></span>
+    </label>
+    <input type="range" id="sim-slider" min="0" max="23" step="1"
+           value="{{ r.current_hour }}"
+           aria-describedby="sim-start sim-cost sim-delta"
+           class="w-full accent-emerald-600" />
+
+    <div style="height: 240px;" class="mt-4">
+      <canvas id="simChart"></canvas>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- 24h chart -->
+  <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6">
+    <h3 class="font-semibold text-lg">Next 24 hours</h3>
+    <p class="text-sm text-slate-500 mb-3">
+      Price per kWh (bars) with live grid demand overlay
+      <span class="inline-block ml-1 rounded px-1.5 py-0.5 text-xs
+                   {% if r.demand_source == 'eia' %}bg-emerald-100 text-emerald-800{% else %}bg-slate-100 text-slate-600{% endif %}">
+        {{ 'live EIA data' if r.demand_source == 'eia' else 'modeled demand' }}
+      </span>
+    </p>
+    <div style="height: 280px;">
+      <canvas id="priceChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const labels = {{ r.hour_labels|tojson }};
+  const prices = {{ r.curve|tojson }};
+  const demand = {{ r.demand_curve|tojson }};
+  const currentHour = {{ r.current_hour }};
+  const minP = Math.min(...prices), maxP = Math.max(...prices);
+  const colors = prices.map((p, i) => {
+    if (i === currentHour) return '#1d4ed8';            // current hour: blue
+    if (maxP === minP) return '#94a3b8';                // flat
+    const rel = (p - minP) / (maxP - minP);
+    if (rel <= 1/3) return '#059669';                   // green
+    if (rel <= 2/3) return '#d97706';                   // amber
+    return '#dc2626';                                   // red
+  });
+
+  if (window._wwChart) window._wwChart.destroy();
+  const ctx = document.getElementById('priceChart').getContext('2d');
+  window._wwChart = new Chart(ctx, {
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          type: 'bar', label: 'Price ($/kWh)', data: prices,
+          backgroundColor: colors, yAxisID: 'y', order: 2,
+        },
+        {
+          type: 'line', label: 'Grid demand', data: demand,
+          borderColor: '#0f172a', borderWidth: 2, pointRadius: 0,
+          tension: 0.35, yAxisID: 'y1', order: 1,
+        },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { boxWidth: 12 } },
+        tooltip: {
+          callbacks: {
+            label: (c) => c.dataset.yAxisID === 'y'
+              ? '$' + c.parsed.y.toFixed(3) + '/kWh'
+              : 'Grid demand ' + Math.round(c.parsed.y * 100) + '%',
+          },
+        },
+      },
+      scales: {
+        y: { title: { display: true, text: '$/kWh' }, beginAtZero: true },
+        y1: {
+          position: 'right', min: 0, max: 1, grid: { drawOnChartArea: false },
+          ticks: { callback: (v) => Math.round(v * 100) + '%' },
+          title: { display: true, text: 'Grid demand' },
+        },
+      },
+    },
+  });
+})();
+</script>
+
+{% if r.appliance %}
+{% set a = r.appliance %}
+<script>
+(function () {
+  const slider = document.getElementById('sim-slider');
+  const canvas = document.getElementById('simChart');
+  if (!slider || !canvas) return;
+
+  const labels = {{ r.hour_labels|tojson }};
+  const costs = {{ a.sim_costs|tojson }};
+  const cheapestHour = {{ a.sim_cheapest_hour }};
+  const cheapestCost = {{ a.sim_cheapest_cost }};
+  const currentHour = {{ r.current_hour }};
+
+  const baseColor = (i, selected) => {
+    if (i === selected) return '#1d4ed8';        // selected: blue
+    if (i === cheapestHour) return '#059669';    // cheapest: green
+    if (i === currentHour) return '#0ea5e9';      // now: sky
+    return '#cbd5e1';                             // others: slate-300
+  };
+
+  if (window._wwSimChart) window._wwSimChart.destroy();
+  const ctx = canvas.getContext('2d');
+  window._wwSimChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Cost to run ($)', data: costs,
+        backgroundColor: costs.map((_, i) => baseColor(i, +slider.value)),
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (c) => '$' + c.parsed.y.toFixed(2) } },
+      },
+      scales: { y: { beginAtZero: true, title: { display: true, text: '$ per run' } } },
+    },
+  });
+
+  const elStart = document.getElementById('sim-start');
+  const elCost = document.getElementById('sim-cost');
+  const elDelta = document.getElementById('sim-delta');
+  const elLabel = document.getElementById('sim-slider-label');
+
+  function render() {
+    const h = +slider.value;
+    const cost = costs[h];
+    const delta = +(cost - cheapestCost).toFixed(2);
+    elStart.textContent = labels[h];
+    elLabel.textContent = labels[h];
+    elCost.textContent = '$' + cost.toFixed(2);
+    if (delta <= 0.005) {
+      elDelta.textContent = 'Cheapest!';
+      elDelta.className = 'text-2xl font-bold mt-1 text-emerald-800';
+    } else {
+      elDelta.textContent = '+$' + delta.toFixed(2);
+      elDelta.className = 'text-2xl font-bold mt-1 text-amber-700';
+    }
+    window._wwSimChart.data.datasets[0].backgroundColor =
+      costs.map((_, i) => baseColor(i, h));
+    window._wwSimChart.update('none');
+  }
+
+  slider.addEventListener('input', render);
+  render();
+})();
+</script>
+{% endif %}
