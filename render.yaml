@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: wattwise
+    runtime: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.11"
+      # Set this in the Render dashboard (kept out of the repo).
+      # Without it, the app still runs on modeled data.
+      - key: EIA_API_KEY
+        sync: false

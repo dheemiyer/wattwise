@@ -53,6 +53,14 @@ Get a free EIA key at https://www.eia.gov/opendata/register.php and put it in
 python -m pytest tests/ -q
 ```
 
+## Deploy (Render free tier)
+
+The repo includes a `render.yaml` blueprint. On https://render.com, sign in
+with GitHub, create a new Blueprint from this repo, and add `EIA_API_KEY` as
+an environment variable in the dashboard. Render builds from
+`requirements.txt` and starts uvicorn on its `$PORT`. Free instances sleep
+when idle, so the first request after a pause can take a bit to wake.
+
 ## Layout
 
 ```
