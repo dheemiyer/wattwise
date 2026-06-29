@@ -12,6 +12,11 @@
     <div class="flex items-start justify-between gap-4 flex-wrap mt-3">
       <div>
         <p class="text-sm text-zinc-500 dark:text-zinc-400">{{ r.utility_name }} &middot; {{ r.current_hour_label }}</p>
+        {% if r.confidence == 'state' %}
+        <p class="text-[11px] font-mono text-amber-600 dark:text-amber-400 mt-0.5">
+          estimated default for your state &middot; pick your provider above for an exact plan
+        </p>
+        {% endif %}
         <p class="text-5xl font-bold font-mono tabular-nums mt-1 tracking-tight">
           ${{ "%.3f"|format(r.current_price) }}<span class="text-lg font-medium text-zinc-400">/kWh</span>
         </p>

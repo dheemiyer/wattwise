@@ -71,9 +71,7 @@ def estimate(
     if match is None:
         return _error(
             request,
-            "We don't cover that zip yet. Try a major metro "
-            "(Dallas, Houston, SF, LA, NYC, Chicago, Atlanta, Denver, "
-            "Phoenix, Minneapolis).",
+            "That doesn't look like a valid US zip code. Enter 5 digits.",
         )
 
     util_key = utility or match["default_utility"]
@@ -86,6 +84,8 @@ def estimate(
     signal = eia.get_grid_signal(util["eia_region"])
     carbon = eia.get_carbon_signal(util["eia_region"])
     result = logic.compute_estimate(util, appl, hours, signal, carbon)
+    result["confidence"] = match.get("confidence", "high")
+    result["state"] = match.get("state")
 
     return templates.TemplateResponse(
         request,

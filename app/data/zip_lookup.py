@@ -15,6 +15,10 @@ Rate structures
 grid demand + day-ahead forecast as the grid-stress signal for dynamic pricing.
 """
 
+from __future__ import annotations
+
+from . import states
+
 # --- Utility definitions (the source of truth for base pricing) -------------
 # Helper-free, explicit data. Rates are representative 2024-ish residential.
 UTILITIES: dict[str, dict] = {
@@ -61,6 +65,7 @@ UTILITIES: dict[str, dict] = {
                  "flat_rate": 0.14},
     # ----- Midwest (PJM / MISO / SPP) -----
     "comed": {"name": "ComEd (Chicago)", "eia_region": "PJM", "structure": "flat", "flat_rate": 0.16},
+    "aep_ohio": {"name": "AEP Ohio", "eia_region": "PJM", "structure": "flat", "flat_rate": 0.15},
     "ameren": {"name": "Ameren (Missouri/Illinois)", "eia_region": "MISO", "structure": "flat",
                "flat_rate": 0.14},
     "dte": {"name": "DTE Energy (Detroit)", "eia_region": "MISO", "structure": "tou",
@@ -237,25 +242,65 @@ ZIP_PREFIX_TO_UTILITIES: dict[str, list[str]] = {
     "967": ["hawaiian_electric"], "968": ["hawaiian_electric"],
 }
 
+# --- Per-state default utility (fallback when no exact prefix match) ---------
+# A representative provider for every state we can model, so any US zip lands
+# somewhere sensible. Labeled as a state-level estimate in the UI.
+STATE_DEFAULT_UTILITY: dict[str, str] = {
+    "MA": "national_grid_ma", "RI": "eversource", "NH": "eversource",
+    "ME": "eversource", "VT": "eversource", "CT": "eversource",
+    "NJ": "pseg_nj", "NY": "coned", "PA": "ppl", "DE": "pseg_nj",
+    "DC": "pepco", "MD": "bge", "VA": "dominion", "WV": "dominion",
+    "NC": "duke_nc", "SC": "duke_nc", "GA": "georgia_power", "FL": "fpl",
+    "AL": "alabama_power", "TN": "tva", "MS": "entergy", "KY": "tva",
+    "OH": "aep_ohio", "IN": "aep_ohio", "MI": "dte", "IL": "comed",
+    "WI": "we_energies", "MN": "xcel_mn", "IA": "xcel_mn", "MO": "ameren",
+    "KS": "evergy", "NE": "evergy", "SD": "xcel_mn", "ND": "xcel_mn",
+    "LA": "entergy", "AR": "entergy", "OK": "oge", "TX": "oncor",
+    "CO": "xcel_co", "WY": "rocky_mountain", "ID": "idaho_power",
+    "UT": "rocky_mountain", "MT": "rocky_mountain", "AZ": "aps",
+    "NM": "pnm", "NV": "nv_energy", "CA": "pge", "HI": "hawaiian_electric",
+    "OR": "portland_ge", "WA": "puget_sound",
+}
+
 
 def lookup_by_zip(zip_code: str) -> dict | None:
     """Resolve a 5-digit zip to region + candidate utilities.
 
-    Returns a dict with `prefix`, `default_utility` (key), and `candidates`
-    (list of {key, name}). Returns None if the prefix isn't covered.
+    Two-layer resolution:
+      1. exact 3-digit prefix -> curated metro utilities (confidence 'high')
+      2. else prefix -> state -> default utility (confidence 'state')
+
+    Returns a dict with `prefix`, `default_utility`, `candidates`,
+    `confidence`, and `state`. Returns None only for clearly invalid input or
+    a prefix we can't even map to a state.
     """
     zip_code = (zip_code or "").strip()
     if len(zip_code) < 3 or not zip_code[:3].isdigit():
         return None
     prefix = zip_code[:3]
+    state = states.prefix_state(prefix)
+
     keys = ZIP_PREFIX_TO_UTILITIES.get(prefix)
-    if not keys:
-        return None
-    return {
-        "prefix": prefix,
-        "default_utility": keys[0],
-        "candidates": [{"key": k, "name": UTILITIES[k]["name"]} for k in keys],
-    }
+    if keys:
+        return {
+            "prefix": prefix,
+            "state": state,
+            "confidence": "high",
+            "default_utility": keys[0],
+            "candidates": [{"key": k, "name": UTILITIES[k]["name"]} for k in keys],
+        }
+
+    # Fallback: state-level default.
+    if state and state in STATE_DEFAULT_UTILITY:
+        key = STATE_DEFAULT_UTILITY[state]
+        return {
+            "prefix": prefix,
+            "state": state,
+            "confidence": "state",
+            "default_utility": key,
+            "candidates": [{"key": key, "name": UTILITIES[key]["name"]}],
+        }
+    return None
 
 
 def get_utility(key: str) -> dict | None:
