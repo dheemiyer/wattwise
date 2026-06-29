@@ -86,3 +86,6 @@ Without it, the app runs on a realistic modeled grid curve.
 - Swap curated zip lookup for the live OpenEI utility-rate DB
 - Real-time wholesale LMP where ISOs expose it (ComEd RTP, ERCOT, CAISO)
 - /metrics endpoint (cache hit-rate, latency) + push alerts
+
+## License
+MIT -- see [LICENSE](LICENSE).
