@@ -1,91 +1,79 @@
 # WattWise
 
-A dead-simple consumer layer over real grid electricity pricing. Enter your
-zip, your utility, and (optionally) what you want to run -- WattWise tells you
-the **grid-adjusted price per kWh right now**, whether now is a good or bad
-time, and the **cheapest window in the next 24 hours**.
+Find the cheapest and cleanest time to use electricity. Enter your zip code,
+pick your utility, and (optionally) what you want to run. WattWise shows the
+current price per kWh, the grid's carbon intensity, and the best window over
+the next 24 hours.
 
-## Features
-- **Broad coverage** -- 45 utilities across ~409 US zip-code prefixes
-- Time-of-use + flat base tariffs resolved from your zip
-- **Dynamic, grid-aware pricing**: base tariff x a live grid-stress multiplier
-- **Day-ahead forecast curve** driven by EIA's real demand forecast
-- Green/Yellow/Red "is now a good time?" score with a plain-English *why*
-- **Physics-aware appliance model** -- duty cycles + motor startup surge, so an
-  AC's effective kWh reflects that the compressor only runs part of the time
-- Cheapest consecutive N-hour window finder
-- **Cost Simulator** -- drag a slider across all 24 start hours to see exactly
-  what a run would cost at each, with live savings and a bar chart
-- 24h chart: grid-adjusted price (bars), day-ahead forecast (dashed), demand (line)
+Stack: FastAPI + HTMX + Tailwind + Chart.js. No accounts, no database of user
+data, no build step.
 
-## Honest data model (read this -- it's the interview answer)
-EIA's free API gives hourly grid **demand** + a **day-ahead demand forecast**
-by region -- **not** a retail price. And retail tariffs are *static by design*
-(a TOU plan's peak rate is fixed contractually). So WattWise is explicit about
-what's measured vs modeled:
+## What it does
 
-- **Base price** = the utility's published tariff (real, contractual).
-- **Grid-stress multiplier** = derived from **live EIA demand** (real, measured),
-  mapped to a conservative +/-~30% band -- modeling real-time-pricing behavior.
-- **Effective (dynamic) price** = base x multiplier. Clearly labeled *modeled*,
-  never presented as a literal billed rate.
-- **Forecast price** = the same model applied to EIA's day-ahead forecast.
+- Resolves your zip to a utility and its rate plan (45 utilities, ~409 zip prefixes)
+- Shows a grid-aware price: the utility's published rate adjusted by live grid demand
+- Computes grid carbon intensity from EIA's real hourly fuel mix
+- Finds the cheapest N-hour window, with a "cost vs carbon" optimizer slider
+- Models appliances realistically (duty cycles + motor startup, not just watts x hours)
+- Plots the next 24h: price, day-ahead forecast, and grid demand
 
-Without an API key (or on any network failure) it falls back to a realistic
-synthesized curve and labels the source `mock` so the UI never lies.
+## A note on the data
 
-## Architecture
-```
-app/
-  main.py            FastAPI routes (page + HTMX endpoints)
-  eia.py             EIA-930 client: live demand + day-ahead forecast, proxy-aware
-  grid.py            dynamic pricing model (stress multiplier, forecast, explain)
-  cache.py           SQLite TTL cache (no user data stored)
-  logic.py           base tariff, dynamic curve, best-window, scoring, simulator
-  data/appliances.py wattage + duty-cycle + startup-surge energy model
-  data/zip_lookup.py curated zip -> utility -> rate structure (45 utilities)
-  templates/         HTMX + Tailwind single-page UI, Chart.js charts
-```
+EIA's free API gives hourly grid demand, a day-ahead demand forecast, and
+generation by fuel type, but not a retail price (and retail tariffs are fixed
+by the utility anyway). So the prices here combine two things:
+
+- the utility's published rate plan (the real, contractual part), and
+- a multiplier derived from live grid demand (a model of real-time pricing).
+
+The effective price is labeled as modeled, never as a literal bill. Carbon
+intensity is computed directly from the live fuel mix. Without an API key the
+app falls back to a synthesized curve and labels the source `mock`.
 
 ## Run it
+
 ```bash
-git clone <your-repo-url> wattwise
+git clone https://github.com/dheemiyer/wattwise.git
 cd wattwise
-
-# Option A -- uv (fast)
 uv venv
-uv pip install -r requirements.txt
-
-# Option B -- plain pip
-python -m venv .venv
-.venv\Scripts\activate        # Windows  (use: source .venv/bin/activate on macOS/Linux)
-pip install -r requirements.txt
-
-cp .env.example .env            # then paste your free EIA key (optional)
+uv pip install -r requirements.txt        # or: pip install -r requirements.txt
+cp .env.example .env                       # add your EIA key (optional)
 uvicorn app.main:app --reload --port 8050
 ```
-Open http://localhost:8050
 
-### Behind a corporate proxy
-Set `EIA_PROXY` (or standard `HTTPS_PROXY`) in `.env` so EIA calls route
-through it -- required where `api.eia.gov` isn't directly reachable:
-```
-EIA_PROXY=http://sysproxy.wal-mart.com:8080
-```
+Open http://localhost:8050.
 
-## Test
+Get a free EIA key at https://www.eia.gov/opendata/register.php and put it in
+`.env` as `EIA_API_KEY`. Behind a corporate proxy, also set
+`EIA_PROXY=http://host:port` so the EIA calls can get out.
+
+## Tests
+
 ```bash
-python -m pytest tests/ -q     # 18 tests, all pure logic -- fast
+python -m pytest tests/ -q
 ```
 
-## Get an EIA API key (free, instant)
-https://www.eia.gov/opendata/register.php -- paste into `.env` as `EIA_API_KEY`.
-Without it, the app runs on a realistic modeled grid curve.
+## Layout
 
-## Roadmap
-- Swap curated zip lookup for the live OpenEI utility-rate DB
-- Real-time wholesale LMP where ISOs expose it (ComEd RTP, ERCOT, CAISO)
-- /metrics endpoint (cache hit-rate, latency) + push alerts
+```
+app/
+  main.py             FastAPI routes
+  eia.py              EIA client: demand, forecast, fuel mix (proxy-aware)
+  grid.py             dynamic pricing model
+  carbon.py           carbon intensity + cost/carbon optimizer
+  logic.py            pricing math, windows, scoring, simulator
+  cache.py            SQLite TTL cache
+  data/appliances.py  appliance energy model
+  data/zip_lookup.py  zip -> utility -> rate plan
+  templates/          HTMX + Tailwind UI
+```
+
+## Ideas / todo
+
+- Swap the curated zip lookup for the OpenEI utility-rate database
+- Use real-time wholesale prices where ISOs publish them (ComEd, ERCOT, CAISO)
+- Add a /metrics endpoint and price-drop alerts
 
 ## License
-MIT -- see [LICENSE](LICENSE).
+
+MIT. See [LICENSE](LICENSE).
